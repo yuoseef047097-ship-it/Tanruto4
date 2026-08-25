@@ -1,18 +1,20 @@
 -- TANRUTO4 SCRIPT
--- ESP + Player List + TP + Fly + Server + Script Settings
--- Theme: Red / Yellow / Pink / Blue / Green
--- Extra: UI Transparency
+-- ESP + Player List + TP Points + TP + Fly + Server + Script Settings
+-- Multi TP Points / Rename / Delete / Teleport
+-- TP menu closes automatically after teleport
 
-local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
+local Players=game:GetService("Players")
+local UIS=game:GetService("UserInputService")
+local RunService=game:GetService("RunService")
+local Lighting=game:GetService("Lighting")
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local player=Players.LocalPlayer
+local playerGui=player:WaitForChild("PlayerGui")
 
-local old = playerGui:FindFirstChild("tanruto4 script")
-if old then old:Destroy() end
+local old=playerGui:FindFirstChild("tanruto4 script")
+if old then
+	old:Destroy()
+end
 
 --------------------------------------------------
 -- STATES
@@ -29,7 +31,6 @@ local fpsBoost=false
 local particlesEnabled=true
 
 local targetPlayer
-local savedTPPoint
 
 local speedList={16,50,100,150}
 local speedIndex=1
@@ -52,6 +53,46 @@ local godConnection
 local espObjects={}
 local selectedESP={}
 local espConnections={}
+
+--------------------------------------------------
+-- TP POINTS
+--------------------------------------------------
+
+local tpPoints={}
+local nextTPNumber=1
+
+local function getNextTPName()
+	local name="نقطة انتقال "..nextTPNumber
+	nextTPNumber+=1
+	return name
+end
+
+local function resetTPNumberIfEmpty()
+	if #tpPoints==0 then
+		nextTPNumber=1
+	end
+end
+
+local function rebuildTPNumber()
+	if #tpPoints==0 then
+		nextTPNumber=1
+		return
+	end
+
+	local highest=0
+
+	for _,point in ipairs(tpPoints) do
+		local number=tonumber(string.match(point.name or "","نقطة انتقال (%d+)"))
+
+		if number and number>highest then
+			highest=number
+		end
+	end
+
+	if highest>=nextTPNumber then
+		nextTPNumber=highest+1
+	end
+end
 
 --------------------------------------------------
 -- THEME
@@ -114,22 +155,30 @@ local startPos
 title.InputBegan:Connect(function(input)
 	if input.UserInputType==Enum.UserInputType.Touch
 	or input.UserInputType==Enum.UserInputType.MouseButton1 then
+
 		dragging=true
-		dragStart=input.Position
-		startPos=frame.Position
+	dragStart=input.Position
+	startPos=frame.Position
 	end
 end)
 
 UIS.InputChanged:Connect(function(input)
-	if not dragging then return end
+	if not dragging then
+		return
+	end
+
 	if input.UserInputType~=Enum.UserInputType.Touch
-	and input.UserInputType~=Enum.UserInputType.MouseMovement then return end
+	and input.UserInputType~=Enum.UserInputType.MouseMovement then
+		return
+	end
 
 	local delta=input.Position-dragStart
 
 	frame.Position=UDim2.new(
-		startPos.X.Scale,startPos.X.Offset+delta.X,
-		startPos.Y.Scale,startPos.Y.Offset+delta.Y
+		startPos.X.Scale,
+		startPos.X.Offset+delta.X,
+		startPos.Y.Scale,
+		startPos.Y.Offset+delta.Y
 	)
 end)
 
@@ -164,6 +213,7 @@ local miniPos
 mini.InputBegan:Connect(function(input)
 	if input.UserInputType==Enum.UserInputType.Touch
 	or input.UserInputType==Enum.UserInputType.MouseButton1 then
+
 		miniDragging=true
 		miniMoved=false
 		miniStart=input.Position
@@ -172,9 +222,14 @@ mini.InputBegan:Connect(function(input)
 end)
 
 UIS.InputChanged:Connect(function(input)
-	if not miniDragging then return end
+	if not miniDragging then
+		return
+	end
+
 	if input.UserInputType~=Enum.UserInputType.Touch
-	and input.UserInputType~=Enum.UserInputType.MouseMovement then return end
+	and input.UserInputType~=Enum.UserInputType.MouseMovement then
+		return
+	end
 
 	local delta=input.Position-miniStart
 
@@ -183,8 +238,10 @@ UIS.InputChanged:Connect(function(input)
 	end
 
 	mini.Position=UDim2.new(
-		miniPos.X.Scale,miniPos.X.Offset+delta.X,
-		miniPos.Y.Scale,miniPos.Y.Offset+delta.Y
+		miniPos.X.Scale,
+		miniPos.X.Offset+delta.X,
+		miniPos.Y.Scale,
+		miniPos.Y.Offset+delta.Y
 	)
 end)
 
@@ -235,6 +292,7 @@ local function button(text)
 	Instance.new("UICorner",b).CornerRadius=UDim.new(0,8)
 
 	table.insert(allButtons,b)
+
 	return b
 end
 
@@ -270,6 +328,7 @@ local function section(text)
 	Instance.new("UICorner",s).CornerRadius=UDim.new(0,8)
 
 	table.insert(allSections,s)
+
 	return s
 end
 
@@ -305,8 +364,7 @@ local spectateButton=button("👁 مشاهدة")
 section("📍 الانتقال")
 
 local saveTPButton=button("📍 حفظ TP Point")
-local tpButton=button("🚀 الانتقال إلى TP Point")
-local clearTPButton=button("🗑 حذف TP Point")
+local tpListButton=button("📋 قائمة نقاط TP")
 
 local gotoBox=textbox("اسم اللاعب للانتقال")
 local gotoButton=button("📌 انتقال إلى اللاعب")
@@ -338,18 +396,392 @@ local transparencyButton=button("🪟 شفافية القائمة: إيقاف")
 local resetThemeButton=button("🔄 إعادة الإعدادات")
 
 --------------------------------------------------
--- THEME FUNCTION
+-- TP WINDOW
 --------------------------------------------------
 
+local tpWindow=Instance.new("Frame")
+tpWindow.Size=UDim2.fromOffset(290,390)
+tpWindow.Position=UDim2.new(.5,-145,.5,-195)
+tpWindow.BackgroundColor3=Color3.fromRGB(18,19,25)
+tpWindow.BorderSizePixel=0
+tpWindow.Visible=false
+tpWindow.ZIndex=40
+tpWindow.Parent=gui
+
+Instance.new("UICorner",tpWindow).CornerRadius=UDim.new(0,12)
+
+local tpStroke=Instance.new("UIStroke",tpWindow)
+tpStroke.Color=themes[currentTheme]
+tpStroke.Thickness=2
+
+local tpTitle=Instance.new("TextLabel")
+tpTitle.Size=UDim2.new(1,0,0,42)
+tpTitle.BackgroundColor3=themes[currentTheme]
+tpTitle.Text="📍 نقاط الانتقال"
+tpTitle.TextColor3=Color3.new(1,1,1)
+tpTitle.TextSize=14
+tpTitle.Font=Enum.Font.GothamBold
+tpTitle.ZIndex=41
+tpTitle.Parent=tpWindow
+
+local closeTP=Instance.new("TextButton")
+closeTP.Size=UDim2.fromOffset(38,38)
+closeTP.Position=UDim2.new(1,-40,0,2)
+closeTP.BackgroundTransparency=1
+closeTP.Text="×"
+closeTP.TextColor3=Color3.new(1,1,1)
+closeTP.TextSize=24
+closeTP.ZIndex=42
+closeTP.Parent=tpWindow
+
+local tpScroll=Instance.new("ScrollingFrame")
+tpScroll.Size=UDim2.new(1,-12,1,-52)
+tpScroll.Position=UDim2.fromOffset(6,48)
+tpScroll.BackgroundTransparency=1
+tpScroll.BorderSizePixel=0
+tpScroll.ScrollBarThickness=5
+tpScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+tpScroll.ZIndex=41
+tpScroll.Parent=tpWindow
+
+local tpLayout=Instance.new("UIListLayout")
+tpLayout.Padding=UDim.new(0,6)
+tpLayout.SortOrder=Enum.SortOrder.LayoutOrder
+tpLayout.Parent=tpScroll
+
+--------------------------------------------------
+-- TP FUNCTIONS
+--------------------------------------------------
+
+local function refreshTPButton()
+	if #tpPoints==0 then
+		tpListButton.Text="📋 قائمة نقاط TP: فارغة"
+	else
+		tpListButton.Text="📋 قائمة نقاط TP ("..#tpPoints..")"
+	end
+end
+
+local function clearTPCards()
+	for _,v in ipairs(tpScroll:GetChildren()) do
+		if v:IsA("Frame") or v:IsA("TextLabel") then
+			v:Destroy()
+		end
+	end
+end
+
+local refreshTPWindow
+
+local function createTPCard(point)
+
+	local card=Instance.new("Frame")
+	card.Size=UDim2.new(1,-5,0,105)
+	card.BackgroundColor3=Color3.fromRGB(30,32,40)
+	card.ZIndex=42
+	card.Parent=tpScroll
+
+	Instance.new("UICorner",card).CornerRadius=UDim.new(0,9)
+
+	local nameLabel=Instance.new("TextLabel")
+	nameLabel.Size=UDim2.new(1,-10,0,28)
+	nameLabel.Position=UDim2.fromOffset(5,3)
+	nameLabel.BackgroundTransparency=1
+	nameLabel.Text=point.name
+	nameLabel.TextColor3=Color3.new(1,1,1)
+	nameLabel.TextSize=12
+	nameLabel.Font=Enum.Font.GothamBold
+	nameLabel.TextXAlignment=Enum.TextXAlignment.Left
+	nameLabel.ZIndex=43
+	nameLabel.Parent=card
+
+	local tp=Instance.new("TextButton")
+	tp.Size=UDim2.new(.32,-5,0,34)
+	tp.Position=UDim2.fromOffset(5,38)
+	tp.BackgroundColor3=themes[currentTheme]
+	tp.Text="🚀 انتقال"
+	tp.TextColor3=Color3.new(1,1,1)
+	tp.TextSize=10
+	tp.ZIndex=43
+	tp.Parent=card
+
+	local rename=Instance.new("TextButton")
+	rename.Size=UDim2.new(.32,-5,0,34)
+	rename.Position=UDim2.new(.34,0,0,38)
+	rename.BackgroundColor3=Color3.fromRGB(65,67,75)
+	rename.Text="✏ إعادة تسمية"
+	rename.TextColor3=Color3.new(1,1,1)
+	rename.TextSize=9
+	rename.ZIndex=43
+	rename.Parent=card
+
+	local delete=Instance.new("TextButton")
+	delete.Size=UDim2.new(.32,-5,0,34)
+	delete.Position=UDim2.new(.68,0,0,38)
+	delete.BackgroundColor3=Color3.fromRGB(150,55,65)
+	delete.Text="🗑 حذف"
+	delete.TextColor3=Color3.new(1,1,1)
+	delete.TextSize=10
+	delete.ZIndex=43
+	delete.Parent=card
+
+	for _,b in ipairs({tp,rename,delete}) do
+		Instance.new("UICorner",b).CornerRadius=UDim.new(0,7)
+	end
+
+	--------------------------------------------------
+	-- TELEPORT
+	--------------------------------------------------
+
+	tp.MouseButton1Click:Connect(function()
+
+		local char=player.Character
+		local root=char and char:FindFirstChild("HumanoidRootPart")
+
+		if root and point and point.cframe then
+			root.CFrame=point.cframe+Vector3.new(0,3,0)
+
+			-- إغلاق قائمة TP مباشرة بعد الانتقال
+			tpWindow.Visible=false
+		end
+	end)
+
+	--------------------------------------------------
+	-- DELETE
+	--------------------------------------------------
+
+	delete.MouseButton1Click:Connect(function()
+
+		for i,v in ipairs(tpPoints) do
+			if v==point then
+				table.remove(tpPoints,i)
+				break
+			end
+		end
+
+		-- إذا لم يتبق أي TP يبدأ العداد من 1
+		if #tpPoints==0 then
+			nextTPNumber=1
+		end
+
+		refreshTPButton()
+
+		if tpWindow.Visible then
+			refreshTPWindow()
+		end
+	end)
+
+	--------------------------------------------------
+	-- RENAME
+	--------------------------------------------------
+
+	rename.MouseButton1Click:Connect(function()
+
+		if not card.Parent then
+			return
+		end
+
+		tp.Visible=false
+		rename.Visible=false
+		delete.Visible=false
+
+		local box=Instance.new("TextBox")
+		box.Size=UDim2.new(1,-10,0,34)
+		box.Position=UDim2.fromOffset(5,38)
+		box.BackgroundColor3=Color3.fromRGB(45,47,55)
+		box.Text=point.name
+		box.PlaceholderText="اكتب الاسم الجديد"
+		box.TextColor3=Color3.new(1,1,1)
+		box.TextSize=11
+		box.ClearTextOnFocus=false
+		box.ZIndex=44
+		box.Parent=card
+
+		Instance.new("UICorner",box).CornerRadius=UDim.new(0,7)
+
+		box:CaptureFocus()
+
+		local finished=false
+
+		local function finishRename()
+
+			if finished then
+				return
+			end
+
+			finished=true
+
+			local newName=box.Text
+				:gsub("^%s+","")
+				:gsub("%s+$","")
+
+			if newName~="" then
+				point.name=newName
+			end
+
+			if box and box.Parent then
+				box:Destroy()
+			end
+
+			if card and card.Parent then
+				tp.Visible=true
+				rename.Visible=true
+				delete.Visible=true
+			end
+
+			if nameLabel and nameLabel.Parent then
+				nameLabel.Text=point.name
+			end
+
+			-- إعادة بناء القائمة حتى تبقى البيانات متزامنة
+			if tpWindow.Visible then
+				task.defer(function()
+					refreshTPWindow()
+				end)
+			end
+		end
+
+		box.FocusLost:Connect(finishRename)
+	end)
+end
+
+refreshTPWindow=function()
+
+	clearTPCards()
+
+	if #tpPoints==0 then
+
+		local empty=Instance.new("TextLabel")
+		empty.Size=UDim2.new(1,-10,0,50)
+		empty.BackgroundTransparency=1
+		empty.Text="لا توجد نقاط انتقال"
+		empty.TextColor3=Color3.fromRGB(170,170,170)
+		empty.TextSize=12
+		empty.Font=Enum.Font.GothamMedium
+		empty.ZIndex=42
+		empty.Parent=tpScroll
+
+		return
+	end
+
+	for _,point in ipairs(tpPoints) do
+		createTPCard(point)
+	end
+end
+
+--------------------------------------------------
+-- SAVE TP
+--------------------------------------------------
+
+saveTPButton.MouseButton1Click:Connect(function()
+
+	local char=player.Character
+	local root=char and char:FindFirstChild("HumanoidRootPart")
+
+	if not root then
+		return
+	end
+
+	-- إذا كانت القائمة فارغة، يبدأ الاسم من نقطة انتقال 1
+	if #tpPoints==0 then
+		nextTPNumber=1
+	end
+
+	local point={
+		name=getNextTPName(),
+		cframe=root.CFrame
+	}
+
+	table.insert(tpPoints,point)
+
+	saveTPButton.Text="📍 تم حفظ "..point.name
+
+	refreshTPButton()
+
+	task.delay(1.2,function()
+		if saveTPButton and saveTPButton.Parent then
+			saveTPButton.Text="📍 حفظ TP Point"
+		end
+	end)
+
+	tpWindow.Visible=true
+	refreshTPWindow()
+end)
+
+--------------------------------------------------
+-- TP LIST
+--------------------------------------------------
+
+tpListButton.MouseButton1Click:Connect(function()
+
+	tpWindow.Visible=not tpWindow.Visible
+
+	if tpWindow.Visible then
+		refreshTPWindow()
+	end
+end)
+
+closeTP.MouseButton1Click:Connect(function()
+	tpWindow.Visible=false
+end)
+
+--------------------------------------------------
+-- THEME
+--------------------------------------------------
+
+local function updateAllESPColors()
+
+	for _,h in pairs(espObjects) do
+		if h and h.Parent then
+			h.FillColor=themes[currentTheme]
+		end
+	end
+
+	for _,h in pairs(selectedESP) do
+		if h and h.Parent then
+			h.FillColor=themes[currentTheme]
+		end
+	end
+
+	if pwStroke then
+		pwStroke.Color=themes[currentTheme]
+	end
+
+	if playersTitle then
+		playersTitle.BackgroundColor3=themes[currentTheme]
+	end
+
+	if upButton then
+		upButton.BackgroundColor3=themes[currentTheme]
+	end
+
+	if downButton then
+		downButton.BackgroundColor3=themes[currentTheme]
+	end
+
+	if tpStroke then
+		tpStroke.Color=themes[currentTheme]
+	end
+
+	if tpTitle then
+		tpTitle.BackgroundColor3=themes[currentTheme]
+	end
+end
+
 local function applyTheme(name)
-	if not themes[name] then return end
+
+	if not themes[name] then
+		return
+	end
 
 	currentTheme=name
+
 	local color=themes[name]
 
 	title.BackgroundColor3=color
 	mini.BackgroundColor3=color
 	fs.Color=color
+
+	tpTitle.BackgroundColor3=color
+	tpStroke.Color=color
 
 	for _,s in ipairs(allSections) do
 		if s and s.Parent then
@@ -359,7 +791,7 @@ local function applyTheme(name)
 
 	for _,b in ipairs(allButtons) do
 		if b and b.Parent then
-			b.BackgroundColor3=color
+			b.BackgroundColor3=Color3.fromRGB(35,37,45)
 		end
 	end
 
@@ -368,9 +800,23 @@ local function applyTheme(name)
 	pinkThemeButton.BackgroundColor3=(name=="Pink" and color) or Color3.fromRGB(35,37,45)
 	blueThemeButton.BackgroundColor3=(name=="Blue" and color) or Color3.fromRGB(35,37,45)
 	greenThemeButton.BackgroundColor3=(name=="Green" and color) or Color3.fromRGB(35,37,45)
+
+	updateAllESPColors()
+
+	-- تحديث أزرار TP الموجودة
+	for _,card in ipairs(tpScroll:GetChildren()) do
+		if card:IsA("Frame") then
+			for _,obj in ipairs(card:GetChildren()) do
+				if obj:IsA("TextButton") and obj.Text=="🚀 انتقال" then
+					obj.BackgroundColor3=color
+				end
+			end
+		end
+	end
 end
 
 local function applyTransparency()
+
 	frame.BackgroundTransparency=uiTransparency
 
 	for _,b in ipairs(allButtons) do
@@ -407,8 +853,9 @@ greenThemeButton.MouseButton1Click:Connect(function()
 end)
 
 transparencyButton.MouseButton1Click:Connect(function()
+
 	if uiTransparency==0 then
-		uiTransparency=0.25
+		uiTransparency=.25
 		transparencyButton.Text="🪟 شفافية القائمة: تشغيل"
 	else
 		uiTransparency=0
@@ -419,6 +866,7 @@ transparencyButton.MouseButton1Click:Connect(function()
 end)
 
 resetThemeButton.MouseButton1Click:Connect(function()
+
 	currentTheme="Blue"
 	uiTransparency=0
 
@@ -486,7 +934,10 @@ playersLayout.Parent=playersScroll
 --------------------------------------------------
 
 local function findPlayer(text)
-	if not text or text=="" then return nil end
+
+	if not text or text=="" then
+		return nil
+	end
 
 	text=text:lower()
 
@@ -513,6 +964,7 @@ end
 --------------------------------------------------
 
 local function removePlayerESP(target)
+
 	if selectedESP[target] then
 		selectedESP[target]:Destroy()
 		selectedESP[target]=nil
@@ -525,6 +977,7 @@ local function removePlayerESP(target)
 end
 
 local function addPlayerESP(target)
+
 	removePlayerESP(target)
 
 	if not target or not target.Character then
@@ -544,6 +997,7 @@ local function addPlayerESP(target)
 	selectedESP[target]=highlight
 
 	espConnections[target]=target.CharacterAdded:Connect(function(char)
+
 		task.wait(.5)
 
 		if selectedESP[target] then
@@ -557,6 +1011,7 @@ local function addPlayerESP(target)
 end
 
 local function togglePlayerESP(target,b)
+
 	if selectedESP[target] then
 		removePlayerESP(target)
 		b.Text="🎯 ESP"
@@ -572,6 +1027,7 @@ end
 --------------------------------------------------
 
 local function createPlayerCard(target,isFriend)
+
 	local card=Instance.new("Frame")
 	card.Size=UDim2.new(1,-5,0,115)
 	card.BackgroundColor3=Color3.fromRGB(30,32,40)
@@ -637,6 +1093,7 @@ local function createPlayerCard(target,isFriend)
 	end
 
 	tp.MouseButton1Click:Connect(function()
+
 		local c=player.Character
 		local tc=target.Character
 
@@ -653,6 +1110,7 @@ local function createPlayerCard(target,isFriend)
 	end)
 
 	spec.MouseButton1Click:Connect(function()
+
 		local tc=target.Character
 		local hum=tc and tc:FindFirstChildOfClass("Humanoid")
 
@@ -677,6 +1135,7 @@ local function createPlayerCard(target,isFriend)
 end
 
 local function refreshPlayers()
+
 	for _,v in ipairs(playersScroll:GetChildren()) do
 		if v:IsA("Frame") then
 			v:Destroy()
@@ -696,7 +1155,9 @@ local function refreshPlayers()
 	end)
 
 	for _,p in ipairs(list) do
+
 		local friend=false
+
 		pcall(function()
 			friend=player:IsFriendsWith(p.UserId)
 		end)
@@ -706,6 +1167,7 @@ local function refreshPlayers()
 end
 
 playerListButton.MouseButton1Click:Connect(function()
+
 	playersWindow.Visible=not playersWindow.Visible
 
 	if playersWindow.Visible then
@@ -722,7 +1184,10 @@ end)
 --------------------------------------------------
 
 RunService.Stepped:Connect(function()
-	if not noclip then return end
+
+	if not noclip then
+		return
+	end
 
 	local char=player.Character
 
@@ -736,8 +1201,12 @@ RunService.Stepped:Connect(function()
 end)
 
 noclipButton.MouseButton1Click:Connect(function()
+
 	noclip=not noclip
-	noclipButton.Text=noclip and "نوكلب: تشغيل" or "نوكلب: إيقاف"
+
+	noclipButton.Text=noclip
+		and "نوكلب: تشغيل"
+		or "نوكلب: إيقاف"
 end)
 
 --------------------------------------------------
@@ -745,7 +1214,10 @@ end)
 --------------------------------------------------
 
 UIS.JumpRequest:Connect(function()
-	if not infiniteJump then return end
+
+	if not infiniteJump then
+		return
+	end
 
 	local char=player.Character
 	local hum=char and char:FindFirstChildOfClass("Humanoid")
@@ -756,8 +1228,12 @@ UIS.JumpRequest:Connect(function()
 end)
 
 jumpButton.MouseButton1Click:Connect(function()
+
 	infiniteJump=not infiniteJump
-	jumpButton.Text=infiniteJump and "قفز لا نهائي: تشغيل" or "قفز لا نهائي: إيقاف"
+
+	jumpButton.Text=infiniteJump
+		and "قفز لا نهائي: تشغيل"
+		or "قفز لا نهائي: إيقاف"
 end)
 
 --------------------------------------------------
@@ -765,8 +1241,12 @@ end)
 --------------------------------------------------
 
 speedButton.MouseButton1Click:Connect(function()
+
 	speedIndex+=1
-	if speedIndex>#speedList then speedIndex=1 end
+
+	if speedIndex>#speedList then
+		speedIndex=1
+	end
 
 	local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 
@@ -782,8 +1262,12 @@ end)
 --------------------------------------------------
 
 jumpPowerButton.MouseButton1Click:Connect(function()
+
 	jumpIndex+=1
-	if jumpIndex>#jumpList then jumpIndex=1 end
+
+	if jumpIndex>#jumpList then
+		jumpIndex=1
+	end
 
 	local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 
@@ -800,6 +1284,7 @@ end)
 --------------------------------------------------
 
 local function stopGod()
+
 	godMode=false
 
 	if godConnection then
@@ -811,10 +1296,13 @@ local function stopGod()
 end
 
 local function startGod()
+
 	local char=player.Character
 	local hum=char and char:FindFirstChildOfClass("Humanoid")
 
-	if not hum then return end
+	if not hum then
+		return
+	end
 
 	godMode=true
 	godButton.Text="عدم الموت: تشغيل"
@@ -824,7 +1312,10 @@ local function startGod()
 	end
 
 	godConnection=RunService.Heartbeat:Connect(function()
-		if not godMode then return end
+
+		if not godMode then
+			return
+		end
 
 		local c=player.Character
 		local h=c and c:FindFirstChildOfClass("Humanoid")
@@ -836,6 +1327,7 @@ local function startGod()
 end
 
 godButton.MouseButton1Click:Connect(function()
+
 	if godMode then
 		stopGod()
 	else
@@ -848,17 +1340,25 @@ end)
 --------------------------------------------------
 
 local function refreshESP()
+
 	for _,h in pairs(espObjects) do
-		if h then h:Destroy() end
+		if h then
+			h:Destroy()
+		end
 	end
 
 	table.clear(espObjects)
 
-	if not espEnabled then return end
+	if not espEnabled then
+		return
+	end
 
 	for _,p in ipairs(Players:GetPlayers()) do
+
 		if p~=player and p.Character then
+
 			local h=Instance.new("Highlight")
+
 			h.Name="T4_ESP"
 			h.Adornee=p.Character
 			h.FillColor=themes[currentTheme]
@@ -874,9 +1374,12 @@ local function refreshESP()
 end
 
 espButton.MouseButton1Click:Connect(function()
+
 	espEnabled=not espEnabled
 
-	espButton.Text=espEnabled and "ESP الكل: تشغيل" or "ESP الكل: إيقاف"
+	espButton.Text=espEnabled
+		and "ESP الكل: تشغيل"
+		or "ESP الكل: إيقاف"
 
 	refreshESP()
 end)
@@ -886,6 +1389,7 @@ end)
 --------------------------------------------------
 
 local function stopSpectating()
+
 	spectating=false
 	targetPlayer=nil
 
@@ -899,6 +1403,7 @@ local function stopSpectating()
 end
 
 spectateButton.MouseButton1Click:Connect(function()
+
 	if spectating then
 		stopSpectating()
 		return
@@ -907,6 +1412,7 @@ spectateButton.MouseButton1Click:Connect(function()
 	local target=findPlayer(spectateBox.Text)
 
 	if target and target.Character then
+
 		local hum=target.Character:FindFirstChildOfClass("Humanoid")
 
 		if hum then
@@ -919,7 +1425,10 @@ spectateButton.MouseButton1Click:Connect(function()
 end)
 
 RunService.RenderStepped:Connect(function()
-	if not spectating or not targetPlayer then return end
+
+	if not spectating or not targetPlayer then
+		return
+	end
 
 	local char=targetPlayer.Character
 
@@ -936,44 +1445,23 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------
--- TP
+-- GOTO PLAYER
 --------------------------------------------------
 
-saveTPButton.MouseButton1Click:Connect(function()
-	local char=player.Character
-	local root=char and char:FindFirstChild("HumanoidRootPart")
-
-	if root then
-		savedTPPoint=root.CFrame
-		saveTPButton.Text="📍 تم الحفظ ✓"
-	end
-end)
-
-tpButton.MouseButton1Click:Connect(function()
-	if not savedTPPoint then return end
-
-	local char=player.Character
-	local root=char and char:FindFirstChild("HumanoidRootPart")
-
-	if root then
-		root.CFrame=savedTPPoint+Vector3.new(0,3,0)
-	end
-end)
-
-clearTPButton.MouseButton1Click:Connect(function()
-	savedTPPoint=nil
-	saveTPButton.Text="📍 حفظ TP Point"
-end)
-
 gotoButton.MouseButton1Click:Connect(function()
+
 	local target=findPlayer(gotoBox.Text)
 
-	if not target then return end
+	if not target then
+		return
+	end
 
 	local char=player.Character
 	local targetChar=target.Character
 
-	if not char or not targetChar then return end
+	if not char or not targetChar then
+		return
+	end
 
 	local root=char:FindFirstChild("HumanoidRootPart")
 	local targetRoot=targetChar:FindFirstChild("HumanoidRootPart")
@@ -990,9 +1478,11 @@ end)
 local savedLighting={}
 
 local function setLowQuality(enabled)
+
 	lowQuality=enabled
 
 	if enabled then
+
 		savedLighting.GlobalShadows=Lighting.GlobalShadows
 		savedLighting.Brightness=Lighting.Brightness
 
@@ -1004,8 +1494,10 @@ local function setLowQuality(enabled)
 		end)
 
 		for _,obj in ipairs(Lighting:GetChildren()) do
+
 			if obj:IsA("PostEffect") then
 				obj.Enabled=false
+
 			elseif obj:IsA("Atmosphere") then
 				obj.Density=0
 				obj.Haze=0
@@ -1014,9 +1506,16 @@ local function setLowQuality(enabled)
 		end
 
 		lowQualityButton.Text="🎮 تقليل الجودة: تشغيل"
+
 	else
-		Lighting.GlobalShadows=savedLighting.GlobalShadows~=false
-		Lighting.Brightness=savedLighting.Brightness or 2
+
+		if savedLighting.GlobalShadows~=nil then
+			Lighting.GlobalShadows=savedLighting.GlobalShadows
+		end
+
+		if savedLighting.Brightness~=nil then
+			Lighting.Brightness=savedLighting.Brightness
+		end
 
 		pcall(function()
 			settings().Rendering.QualityLevel=Enum.QualityLevel.Automatic
@@ -1035,6 +1534,7 @@ end)
 --------------------------------------------------
 
 local function optimizePart(obj)
+
 	if obj:IsA("BasePart") then
 		obj.CastShadow=false
 	end
@@ -1050,9 +1550,11 @@ local function optimizePart(obj)
 end
 
 local function setFPSBoost(enabled)
+
 	fpsBoost=enabled
 
 	if enabled then
+
 		pcall(function()
 			settings().Rendering.QualityLevel=Enum.QualityLevel.Level01
 		end)
@@ -1070,7 +1572,9 @@ local function setFPSBoost(enabled)
 		end
 
 		fpsBoostButton.Text="⚡ رفع الفريمات: تشغيل"
+
 	else
+
 		pcall(function()
 			settings().Rendering.QualityLevel=Enum.QualityLevel.Automatic
 		end)
@@ -1088,6 +1592,7 @@ end)
 --------------------------------------------------
 
 shadowsButton.MouseButton1Click:Connect(function()
+
 	Lighting.GlobalShadows=not Lighting.GlobalShadows
 
 	shadowsButton.Text=Lighting.GlobalShadows
@@ -1100,15 +1605,18 @@ end)
 --------------------------------------------------
 
 particlesButton.MouseButton1Click:Connect(function()
+
 	particlesEnabled=not particlesEnabled
 
 	for _,obj in ipairs(workspace:GetDescendants()) do
+
 		if obj:IsA("ParticleEmitter")
 		or obj:IsA("Trail")
 		or obj:IsA("Beam")
 		or obj:IsA("Smoke")
 		or obj:IsA("Fire")
 		or obj:IsA("Sparkles") then
+
 			obj.Enabled=particlesEnabled
 		end
 	end
@@ -1139,6 +1647,7 @@ local frames=0
 local lastFPSUpdate=os.clock()
 
 RunService.RenderStepped:Connect(function()
+
 	frames+=1
 
 	local now=os.clock()
@@ -1183,7 +1692,9 @@ Instance.new("UICorner",upButton).CornerRadius=UDim.new(0,9)
 Instance.new("UICorner",downButton).CornerRadius=UDim.new(0,9)
 
 local function hold(btn,callback)
+
 	btn.InputBegan:Connect(function(input)
+
 		if input.UserInputType==Enum.UserInputType.Touch
 		or input.UserInputType==Enum.UserInputType.MouseButton1 then
 			callback(true)
@@ -1191,6 +1702,7 @@ local function hold(btn,callback)
 	end)
 
 	btn.InputEnded:Connect(function(input)
+
 		if input.UserInputType==Enum.UserInputType.Touch
 		or input.UserInputType==Enum.UserInputType.MouseButton1 then
 			callback(false)
@@ -1198,14 +1710,20 @@ local function hold(btn,callback)
 	end)
 end
 
-hold(upButton,function(v) upHeld=v end)
-hold(downButton,function(v) downHeld=v end)
+hold(upButton,function(v)
+	upHeld=v
+end)
+
+hold(downButton,function(v)
+	downHeld=v
+end)
 
 --------------------------------------------------
 -- FLY
 --------------------------------------------------
 
 local function stopFly()
+
 	flying=false
 	upHeld=false
 	downHeld=false
@@ -1230,18 +1748,26 @@ local function stopFly()
 	local hum=char and char:FindFirstChildOfClass("Humanoid")
 	local root=char and char:FindFirstChild("HumanoidRootPart")
 
-	if hum then hum.AutoRotate=true end
-	if root then root.AssemblyLinearVelocity=Vector3.zero end
+	if hum then
+		hum.AutoRotate=true
+	end
+
+	if root then
+		root.AssemblyLinearVelocity=Vector3.zero
+	end
 
 	flyButton.Text="✈ الطيران: إيقاف"
 end
 
 local function startFly()
+
 	local char=player.Character
 	local hum=char and char:FindFirstChildOfClass("Humanoid")
 	local root=char and char:FindFirstChild("HumanoidRootPart")
 
-	if not char or not hum or not root then return end
+	if not char or not hum or not root then
+		return
+	end
 
 	flying=true
 	flightControls.Visible=true
@@ -1258,7 +1784,10 @@ local function startFly()
 	flyVelocity.Parent=root
 
 	flyConnection=RunService.RenderStepped:Connect(function()
-		if not flying then return end
+
+		if not flying then
+			return
+		end
 
 		local currentChar=player.Character
 		local currentHum=currentChar and currentChar:FindFirstChildOfClass("Humanoid")
@@ -1296,13 +1825,16 @@ local function startFly()
 		end
 
 		flyVelocity.VectorVelocity=
-			move.Magnitude>0 and move.Unit*flySpeed or Vector3.zero
+			move.Magnitude>0
+			and move.Unit*flySpeed
+			or Vector3.zero
 	end)
 
 	flyButton.Text="✈ الطيران: تشغيل"
 end
 
 flyButton.MouseButton1Click:Connect(function()
+
 	if flying then
 		stopFly()
 	else
@@ -1311,6 +1843,7 @@ flyButton.MouseButton1Click:Connect(function()
 end)
 
 flySpeedButton.MouseButton1Click:Connect(function()
+
 	flySpeedIndex+=1
 
 	if flySpeedIndex>#flySpeeds then
@@ -1318,6 +1851,7 @@ flySpeedButton.MouseButton1Click:Connect(function()
 	end
 
 	flySpeed=flySpeeds[flySpeedIndex]
+
 	flySpeedButton.Text="سرعة الطيران: "..flySpeed
 end)
 
@@ -1326,6 +1860,7 @@ end)
 --------------------------------------------------
 
 Players.PlayerAdded:Connect(function()
+
 	if playersWindow.Visible then
 		refreshPlayers()
 	end
@@ -1337,6 +1872,7 @@ Players.PlayerAdded:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function(p)
+
 	removePlayerESP(p)
 
 	if espObjects[p] then
@@ -1354,6 +1890,7 @@ end)
 --------------------------------------------------
 
 player.CharacterAdded:Connect(function()
+
 	if flying then
 		stopFly()
 	end
@@ -1374,6 +1911,7 @@ end)
 --------------------------------------------------
 
 workspace.DescendantAdded:Connect(function(obj)
+
 	if fpsBoost then
 		task.defer(function()
 			optimizePart(obj)
@@ -1382,37 +1920,9 @@ workspace.DescendantAdded:Connect(function(obj)
 end)
 
 --------------------------------------------------
--- UPDATE THEME COLORS
+-- FINAL
 --------------------------------------------------
 
-local function updateAllESPColors()
-	for _,h in pairs(espObjects) do
-		if h and h.Parent then
-			h.FillColor=themes[currentTheme]
-		end
-	end
-
-	for _,h in pairs(selectedESP) do
-		if h and h.Parent then
-			h.FillColor=themes[currentTheme]
-		end
-	end
-
-	pwStroke.Color=themes[currentTheme]
-	playersTitle.BackgroundColor3=themes[currentTheme]
-	upButton.BackgroundColor3=themes[currentTheme]
-	downButton.BackgroundColor3=themes[currentTheme]
-end
-
-for name in pairs(themes) do
-	-- themes are applied through the buttons above
-end
-
-local oldApplyTheme=applyTheme
-
-applyTheme=function(name)
-	oldApplyTheme(name)
-	updateAllESPColors()
-end
-
 applyTheme("Blue")
+refreshTPButton()
+refreshTPWindow()
