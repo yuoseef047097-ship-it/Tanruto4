@@ -18,7 +18,7 @@ local camera = workspace.CurrentCamera
 -- DISCORD
 --------------------------------------------------
 
-local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1542135413597274224/8plkPOsjOhVlqYpsQRgWcVpl45uDunb-EVSVCUl-P0vdiXZ2OhTIZWVy7C41aXxk74Uy"
+local DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1542150710420963429/bi2t8xuAe3iyYi40iQPFybUwLBp9DOIaHyUX08P8bZW8UCqeN1Hp943lTtdFHsTPTC4m"
 
 local function getRequest()
 	return request
@@ -30,7 +30,7 @@ end
 local function discordRequest(data)
 	if not DISCORD_WEBHOOK
 		or DISCORD_WEBHOOK == ""
-		or DISCORD_WEBHOOK == "https://discord.com/api/webhooks/1542135413597274224/8plkPOsjOhVlqYpsQRgWcVpl45uDunb-EVSVCUl-P0vdiXZ2OhTIZWVy7C41aXxk74Uy" then
+		or DISCORD_WEBHOOK == "https://discord.com/api/webhooks/1542135413597274224/"https://discord.com/api/webhooks/1542150710420963429/bi2t8xuAe3iyYi40iQPFybUwLBp9DOIaHyUX08P8bZW8UCqeN1Hp943lTtdFHsTPTC4m" then
 		return false
 	end
 
