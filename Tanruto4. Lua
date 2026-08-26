@@ -1,8 +1,9 @@
 --// TANRUTO4 SCRIPT
---// Advanced Clean Version
+--// Advanced Clean / Fixed Version
 --// Movement + ESP + Players + Teleport + Performance
 --// Character + Interface + Server Tools
 --// Mobile Friendly
+--// Client-side utility script
 
 --------------------------------------------------
 -- SERVICES
@@ -18,15 +19,31 @@ local Stats = game:GetService("Stats")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local camera = workspace.CurrentCamera
 
 --------------------------------------------------
--- CLEAN OLD T4
+-- GLOBAL CLEANUP
+--------------------------------------------------
+
+local previousCleanup
+
+pcall(function()
+	previousCleanup = rawget(_G, "__T4Cleanup")
+end)
+
+if typeof(previousCleanup) == "function" then
+	pcall(previousCleanup)
+end
+
+--------------------------------------------------
+-- CLEAN POSSIBLE OLD OBJECTS
 --------------------------------------------------
 
 local oldGui = playerGui:FindFirstChild("tanruto4 script")
+
 if oldGui then
-	oldGui:Destroy()
+	pcall(function()
+		oldGui:Destroy()
+	end)
 end
 
 for _, obj in ipairs(workspace:GetDescendants()) do
@@ -40,6 +57,40 @@ for _, obj in ipairs(workspace:GetDescendants()) do
 end
 
 --------------------------------------------------
+-- CONNECTION MANAGER
+--------------------------------------------------
+
+local connections = {}
+
+local function connect(signal, callback)
+	local connection = signal:Connect(callback)
+	table.insert(connections, connection)
+	return connection
+end
+
+local function disconnectAll()
+	for i = #connections, 1, -1 do
+		local connection = connections[i]
+
+		if connection then
+			pcall(function()
+				connection:Disconnect()
+			end)
+		end
+
+		connections[i] = nil
+	end
+end
+
+--------------------------------------------------
+-- CAMERA
+--------------------------------------------------
+
+local function getCamera()
+	return workspace.CurrentCamera
+end
+
+--------------------------------------------------
 -- STATES
 --------------------------------------------------
 
@@ -47,37 +98,68 @@ local states = {
 	noclip = false,
 	infiniteJump = false,
 	flying = false,
+
 	espAll = false,
 	espNames = true,
 	espDistance = false,
 	espHealth = false,
 	teamCheck = false,
+
 	spectating = false,
+
 	godMode = false,
 	antiFall = false,
+	autoJump = false,
+	hideName = false,
+
 	lowQuality = false,
 	fpsBoost = false,
 	particlesEnabled = true,
-	shadowsEnabled = true,
-	autoJump = false,
-	hideName = false
+	shadowsEnabled = true
 }
 
 --------------------------------------------------
 -- VALUES
 --------------------------------------------------
 
-local speedList = {16, 50, 100, 150}
+local speedList = {
+	16,
+	50,
+	100,
+	150
+}
+
 local speedIndex = 1
 
-local jumpList = {50, 75, 100, 150, 200}
+local jumpList = {
+	50,
+	75,
+	100,
+	150,
+	200
+}
+
 local jumpIndex = 1
 
-local flySpeeds = {40, 60, 100, 150}
-local flySpeedIndex = 2
-local flySpeed = 60
+local flySpeeds = {
+	40,
+	60,
+	100,
+	150
+}
 
-local fovList = {70, 80, 90, 100, 110, 120}
+local flySpeedIndex = 2
+local flySpeed = flySpeeds[flySpeedIndex]
+
+local fovList = {
+	70,
+	80,
+	90,
+	100,
+	110,
+	120
+}
+
 local fovIndex = 1
 
 local targetPlayer = nil
@@ -88,29 +170,31 @@ local downHeld = false
 local flyVelocity = nil
 local flyAttachment = nil
 local flyConnection = nil
+
 local godConnection = nil
+local godHealthConnection = nil
+
 local antiFallConnection = nil
 local spectateConnection = nil
 local noclipConnection = nil
 
+local espUpdateConnection = nil
+
 local espObjects = {}
 local selectedESP = {}
-local espConnections = {}
 
 local tpPoints = {}
 local nextTPNumber = 1
 
 local savedCanCollide = {}
-local savedParticleStates = {}
-local savedPostEffects = {}
-
-local savedGlobalShadows = Lighting.GlobalShadows
-local savedBrightness = Lighting.Brightness
-local savedQualityLevel = nil
 
 local safePosition = nil
 
-local characterConnections = {}
+--------------------------------------------------
+-- PERFORMANCE SNAPSHOT
+--------------------------------------------------
+
+local performanceSnapshot = nil
 
 --------------------------------------------------
 -- THEMES
@@ -143,25 +227,35 @@ local function getCharacter()
 end
 
 local function getHumanoid()
-	local char = getCharacter()
-	return char and char:FindFirstChildOfClass("Humanoid")
+	local character = getCharacter()
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChildOfClass("Humanoid")
 end
 
 local function getRoot()
-	local char = getCharacter()
-	return char and char:FindFirstChild("HumanoidRootPart")
-end
+	local character = getCharacter()
 
-local function getNextTPName()
-	local name = "نقطة انتقال " .. nextTPNumber
-	nextTPNumber += 1
-	return name
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
 end
 
 local function isValidPlayer(target)
 	return target
 		and target ~= player
 		and target.Parent == Players
+end
+
+local function getNextTPName()
+	local name = "نقطة انتقال " .. tostring(nextTPNumber)
+	nextTPNumber += 1
+	return name
 end
 
 local function findPlayer(text)
@@ -171,20 +265,20 @@ local function findPlayer(text)
 		return nil
 	end
 
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player then
-			if p.Name:lower() == text
-				or p.DisplayName:lower() == text then
-				return p
+	for _, target in ipairs(Players:GetPlayers()) do
+		if target ~= player then
+			if target.Name:lower() == text
+				or target.DisplayName:lower() == text then
+				return target
 			end
 		end
 	end
 
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player then
-			if p.Name:lower():sub(1, #text) == text
-				or p.DisplayName:lower():sub(1, #text) == text then
-				return p
+	for _, target in ipairs(Players:GetPlayers()) do
+		if target ~= player then
+			if target.Name:lower():sub(1, #text) == text
+				or target.DisplayName:lower():sub(1, #text) == text then
+				return target
 			end
 		end
 	end
@@ -192,26 +286,102 @@ local function findPlayer(text)
 	return nil
 end
 
-local function safeSetClipboard(text)
-	local fn =
-		setclipboard
-		or toclipboard
-		or (Clipboard and Clipboard.set)
+--------------------------------------------------
+-- CLIPBOARD
+--------------------------------------------------
 
-	if not fn then
-		return false
+local function safeSetClipboard(text)
+	local clipboardFunction = nil
+
+	pcall(function()
+		clipboardFunction = setclipboard
+	end)
+
+	if typeof(clipboardFunction) == "function" then
+		return pcall(function()
+			clipboardFunction(tostring(text))
+		end)
 	end
 
-	return pcall(function()
-		fn(tostring(text))
+	local toClipboardFunction = nil
+
+	pcall(function()
+		toClipboardFunction = toclipboard
 	end)
+
+	if typeof(toClipboardFunction) == "function" then
+		return pcall(function()
+			toClipboardFunction(tostring(text))
+		end)
+	end
+
+	local clipboardObject = nil
+
+	pcall(function()
+		clipboardObject = Clipboard
+	end)
+
+	if clipboardObject then
+		local setFunction
+
+		pcall(function()
+			setFunction = clipboardObject.set
+		end)
+
+		if typeof(setFunction) == "function" then
+			return pcall(function()
+				setFunction(tostring(text))
+			end)
+		end
+	end
+
+	return false
 end
 
+--------------------------------------------------
+-- HTTP REQUEST
+--------------------------------------------------
+
 local function getRequest()
-	return request
-		or http_request
-		or (syn and syn.request)
-		or (fluxus and fluxus.request)
+	local requestFunction
+
+	pcall(function()
+		requestFunction = request
+	end)
+
+	if typeof(requestFunction) == "function" then
+		return requestFunction
+	end
+
+	pcall(function()
+		requestFunction = http_request
+	end)
+
+	if typeof(requestFunction) == "function" then
+		return requestFunction
+	end
+
+	pcall(function()
+		if syn then
+			requestFunction = syn.request
+		end
+	end)
+
+	if typeof(requestFunction) == "function" then
+		return requestFunction
+	end
+
+	pcall(function()
+		if fluxus then
+			requestFunction = fluxus.request
+		end
+	end)
+
+	if typeof(requestFunction) == "function" then
+		return requestFunction
+	end
+
+	return nil
 end
 
 --------------------------------------------------
@@ -241,8 +411,8 @@ frame.Parent = gui
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
 local frameStroke = Instance.new("UIStroke")
-frameStroke.Color = themes[currentTheme]
 frameStroke.Thickness = 2
+frameStroke.Color = themes[currentTheme]
 frameStroke.Parent = frame
 
 --------------------------------------------------
@@ -250,6 +420,7 @@ frameStroke.Parent = frame
 --------------------------------------------------
 
 local title = Instance.new("TextLabel")
+title.Name = "Title"
 title.Size = UDim2.new(1, 0, 0, 40)
 title.BackgroundColor3 = themes[currentTheme]
 title.Text = "TANRUTO4 SCRIPT"
@@ -266,7 +437,7 @@ local dragging = false
 local dragStart = nil
 local startPos = nil
 
-title.InputBegan:Connect(function(input)
+connect(title.InputBegan, function(input)
 	if input.UserInputType == Enum.UserInputType.Touch
 		or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
@@ -276,13 +447,17 @@ title.InputBegan:Connect(function(input)
 	end
 end)
 
-UIS.InputChanged:Connect(function(input)
+connect(UIS.InputChanged, function(input)
 	if not dragging then
 		return
 	end
 
 	if input.UserInputType ~= Enum.UserInputType.Touch
 		and input.UserInputType ~= Enum.UserInputType.MouseMovement then
+		return
+	end
+
+	if not dragStart or not startPos then
 		return
 	end
 
@@ -296,7 +471,7 @@ UIS.InputChanged:Connect(function(input)
 	)
 end)
 
-UIS.InputEnded:Connect(function(input)
+connect(UIS.InputEnded, function(input)
 	if input.UserInputType == Enum.UserInputType.Touch
 		or input.UserInputType == Enum.UserInputType.MouseButton1 then
 		dragging = false
@@ -308,6 +483,7 @@ end)
 --------------------------------------------------
 
 local mini = Instance.new("TextButton")
+mini.Name = "MiniButton"
 mini.Size = UDim2.fromOffset(50, 50)
 mini.Position = UDim2.new(0, 8, 0.5, -25)
 mini.BackgroundColor3 = themes[currentTheme]
@@ -315,6 +491,7 @@ mini.Text = "T4"
 mini.TextColor3 = Color3.new(1, 1, 1)
 mini.TextSize = 15
 mini.Font = Enum.Font.GothamBold
+mini.AutoButtonColor = true
 mini.Parent = gui
 
 Instance.new("UICorner", mini).CornerRadius = UDim.new(1, 0)
@@ -324,7 +501,7 @@ local miniMoved = false
 local miniStart = nil
 local miniPos = nil
 
-mini.InputBegan:Connect(function(input)
+connect(mini.InputBegan, function(input)
 	if input.UserInputType == Enum.UserInputType.Touch
 		or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
@@ -335,13 +512,17 @@ mini.InputBegan:Connect(function(input)
 	end
 end)
 
-UIS.InputChanged:Connect(function(input)
+connect(UIS.InputChanged, function(input)
 	if not miniDragging then
 		return
 	end
 
 	if input.UserInputType ~= Enum.UserInputType.Touch
 		and input.UserInputType ~= Enum.UserInputType.MouseMovement then
+		return
+	end
+
+	if not miniStart or not miniPos then
 		return
 	end
 
@@ -359,7 +540,7 @@ UIS.InputChanged:Connect(function(input)
 	)
 end)
 
-UIS.InputEnded:Connect(function(input)
+connect(UIS.InputEnded, function(input)
 	if input.UserInputType == Enum.UserInputType.Touch
 		or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
@@ -376,6 +557,7 @@ end)
 --------------------------------------------------
 
 local scroll = Instance.new("ScrollingFrame")
+scroll.Name = "MainScroll"
 scroll.Size = UDim2.new(1, -14, 1, -48)
 scroll.Position = UDim2.fromOffset(7, 45)
 scroll.BackgroundTransparency = 1
@@ -394,59 +576,62 @@ local allButtons = {}
 local allSections = {}
 
 local function makeButton(text)
-	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, -4, 0, 36)
-	b.BackgroundColor3 = Color3.fromRGB(35, 37, 45)
-	b.BackgroundTransparency = uiTransparency
-	b.Text = text
-	b.TextColor3 = Color3.new(1, 1, 1)
-	b.TextSize = 12
-	b.Font = Enum.Font.GothamMedium
-	b.AutoButtonColor = true
-	b.Parent = scroll
+	local button = Instance.new("TextButton")
 
-	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	button.Size = UDim2.new(1, -4, 0, 36)
+	button.BackgroundColor3 = Color3.fromRGB(35, 37, 45)
+	button.BackgroundTransparency = uiTransparency
+	button.Text = text
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.TextSize = 12
+	button.Font = Enum.Font.GothamMedium
+	button.AutoButtonColor = true
+	button.Parent = scroll
 
-	table.insert(allButtons, b)
+	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
 
-	return b
+	table.insert(allButtons, button)
+
+	return button
 end
 
 local function makeTextBox(placeholder)
-	local b = Instance.new("TextBox")
-	b.Size = UDim2.new(1, -4, 0, 34)
-	b.BackgroundColor3 = Color3.fromRGB(27, 29, 35)
-	b.BackgroundTransparency = uiTransparency
-	b.PlaceholderText = placeholder
-	b.PlaceholderColor3 = Color3.fromRGB(145, 145, 145)
-	b.Text = ""
-	b.TextColor3 = Color3.new(1, 1, 1)
-	b.TextSize = 11
-	b.ClearTextOnFocus = false
-	b.Parent = scroll
+	local box = Instance.new("TextBox")
 
-	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	box.Size = UDim2.new(1, -4, 0, 34)
+	box.BackgroundColor3 = Color3.fromRGB(27, 29, 35)
+	box.BackgroundTransparency = uiTransparency
+	box.PlaceholderText = placeholder
+	box.PlaceholderColor3 = Color3.fromRGB(145, 145, 145)
+	box.Text = ""
+	box.TextColor3 = Color3.new(1, 1, 1)
+	box.TextSize = 11
+	box.ClearTextOnFocus = false
+	box.Parent = scroll
 
-	return b
+	Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+	return box
 end
 
 local function makeSection(text)
-	local s = Instance.new("TextLabel")
-	s.Size = UDim2.new(1, -4, 0, 30)
-	s.BackgroundColor3 = themes[currentTheme]
-	s.BackgroundTransparency = uiTransparency
-	s.Text = "  " .. text
-	s.TextColor3 = Color3.new(1, 1, 1)
-	s.TextSize = 12
-	s.Font = Enum.Font.GothamBold
-	s.TextXAlignment = Enum.TextXAlignment.Left
-	s.Parent = scroll
+	local section = Instance.new("TextLabel")
 
-	Instance.new("UICorner", s).CornerRadius = UDim.new(0, 8)
+	section.Size = UDim2.new(1, -4, 0, 30)
+	section.BackgroundColor3 = themes[currentTheme]
+	section.BackgroundTransparency = uiTransparency
+	section.Text = "  " .. text
+	section.TextColor3 = Color3.new(1, 1, 1)
+	section.TextSize = 12
+	section.Font = Enum.Font.GothamBold
+	section.TextXAlignment = Enum.TextXAlignment.Left
+	section.Parent = scroll
 
-	table.insert(allSections, s)
+	Instance.new("UICorner", section).CornerRadius = UDim.new(0, 8)
 
-	return s
+	table.insert(allSections, section)
+
+	return section
 end
 
 --------------------------------------------------
@@ -522,9 +707,13 @@ local copyGameIdButton = makeButton("📋 نسخ GameId")
 -- PLAYER WINDOW
 --------------------------------------------------
 
+local viewport = getCamera() and getCamera().ViewportSize or Vector2.new(800, 600)
+local playerWindowHeight = math.min(410, math.max(300, viewport.Y * 0.72))
+
 local playersWindow = Instance.new("Frame")
-playersWindow.Size = UDim2.fromOffset(300, 410)
-playersWindow.Position = UDim2.new(0.5, -150, 0.5, -205)
+playersWindow.Name = "PlayersWindow"
+playersWindow.Size = UDim2.new(0, math.min(320, math.max(280, viewport.X * 0.92)), 0, playerWindowHeight)
+playersWindow.Position = UDim2.new(0.5, -math.min(320, math.max(280, viewport.X * 0.92)) / 2, 0.5, -playerWindowHeight / 2)
 playersWindow.BackgroundColor3 = Color3.fromRGB(18, 19, 25)
 playersWindow.BorderSizePixel = 0
 playersWindow.Visible = false
@@ -578,9 +767,12 @@ playersLayout.Parent = playersScroll
 -- TP WINDOW
 --------------------------------------------------
 
+local tpWindowHeight = math.min(400, math.max(300, viewport.Y * 0.70))
+
 local tpWindow = Instance.new("Frame")
-tpWindow.Size = UDim2.fromOffset(300, 400)
-tpWindow.Position = UDim2.new(0.5, -150, 0.5, -200)
+tpWindow.Name = "TPWindow"
+tpWindow.Size = UDim2.new(0, math.min(320, math.max(280, viewport.X * 0.92)), 0, tpWindowHeight)
+tpWindow.Position = UDim2.new(0.5, -math.min(320, math.max(280, viewport.X * 0.92)) / 2, 0.5, -tpWindowHeight / 2)
 tpWindow.BackgroundColor3 = Color3.fromRGB(18, 19, 25)
 tpWindow.BorderSizePixel = 0
 tpWindow.Visible = false
@@ -631,31 +823,41 @@ tpLayout.SortOrder = Enum.SortOrder.LayoutOrder
 tpLayout.Parent = tpScroll
 
 --------------------------------------------------
--- ESP CREATION
+-- ESP
 --------------------------------------------------
 
 local function removeESP(target)
 	local data = espObjects[target]
 
-	if data then
-		if data.highlight then
-			data.highlight:Destroy()
-		end
-
-		if data.billboard then
-			data.billboard:Destroy()
-		end
-
-		if data.healthConnection then
-			data.healthConnection:Disconnect()
-		end
-
-		if data.characterConnection then
-			data.characterConnection:Disconnect()
-		end
-
-		espObjects[target] = nil
+	if not data then
+		return
 	end
+
+	if data.highlight then
+		pcall(function()
+			data.highlight:Destroy()
+		end)
+	end
+
+	if data.billboard then
+		pcall(function()
+			data.billboard:Destroy()
+		end)
+	end
+
+	if data.healthConnection then
+		pcall(function()
+			data.healthConnection:Disconnect()
+		end)
+	end
+
+	if data.characterConnection then
+		pcall(function()
+			data.characterConnection:Disconnect()
+		end)
+	end
+
+	espObjects[target] = nil
 end
 
 local function shouldShowESP(target)
@@ -684,9 +886,14 @@ local function createESP(target, selected)
 		return false
 	end
 
-	local char = target.Character
-	local humanoid = char:FindFirstChildOfClass("Humanoid")
-	local root = char:FindFirstChild("HumanoidRootPart")
+	local character = target.Character
+
+	if not character then
+		return false
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local root = character:FindFirstChild("HumanoidRootPart")
 
 	if not root then
 		return false
@@ -694,17 +901,17 @@ local function createESP(target, selected)
 
 	local highlight = Instance.new("Highlight")
 	highlight.Name = selected and "T4_SelectedESP" or "T4_ESP"
-	highlight.Adornee = char
+	highlight.Adornee = character
 	highlight.FillColor = themes[currentTheme]
 	highlight.OutlineColor = Color3.new(1, 1, 1)
 	highlight.FillTransparency = selected and 0.18 or 0.45
 	highlight.OutlineTransparency = 0
 	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.Parent = char
+	highlight.Parent = character
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "T4_ESPInfo"
-	billboard.Size = UDim2.fromOffset(180, 70)
+	billboard.Size = UDim2.fromOffset(190, 72)
 	billboard.StudsOffset = Vector3.new(0, 3.2, 0)
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = 1000
@@ -725,8 +932,10 @@ local function createESP(target, selected)
 		highlight = highlight,
 		billboard = billboard,
 		info = info,
-		healthConnection = nil,
-		characterConnection = nil
+		humanoid = humanoid,
+		root = root,
+		characterConnection = nil,
+		healthConnection = nil
 	}
 
 	espObjects[target] = data
@@ -748,37 +957,40 @@ local function createESP(target, selected)
 		if states.espDistance then
 			local localRoot = getRoot()
 
-			if localRoot and root and root.Parent then
-				local distance =
-					math.floor(
-						(localRoot.Position - root.Position).Magnitude
-					)
+			if localRoot
+				and data.root
+				and data.root.Parent then
+
+				local distance = math.floor(
+					(localRoot.Position - data.root.Position).Magnitude
+				)
 
 				table.insert(
 					lines,
-					"📏 " .. distance .. "m"
+					"📏 " .. tostring(distance) .. "m"
 				)
 			end
 		end
 
-		if states.espHealth and humanoid then
-			local hp = math.max(
+		if states.espHealth and data.humanoid then
+			local health = math.max(
 				0,
-				math.floor(humanoid.Health)
+				math.floor(data.humanoid.Health)
 			)
 
-			local maxHp = math.max(
+			local maxHealth = math.max(
 				1,
-				math.floor(humanoid.MaxHealth)
+				math.floor(data.humanoid.MaxHealth)
 			)
 
 			table.insert(
 				lines,
-				"❤ " .. hp .. "/" .. maxHp
+				"❤ " .. tostring(health) .. "/" .. tostring(maxHealth)
 			)
 		end
 
 		data.info.Text = table.concat(lines, "\n")
+
 		data.info.Visible =
 			states.espNames
 			or states.espDistance
@@ -788,21 +1000,29 @@ local function createESP(target, selected)
 	updateInfo()
 
 	if humanoid then
-		data.healthConnection =
-			humanoid.HealthChanged:Connect(updateInfo)
+		data.healthConnection = humanoid.HealthChanged:Connect(
+			updateInfo
+		)
 	end
 
-	data.characterConnection =
-		target.CharacterAdded:Connect(function()
-			task.wait(0.35)
+	data.characterConnection = target.CharacterAdded:Connect(
+		function()
+			task.wait(0.2)
 
-			if espObjects[target] then
-				local useSelected =
-					selectedESP[target] ~= nil
+			if target.Parent ~= Players then
+				return
+			end
 
+			local useSelected =
+				selectedESP[target] == true
+
+			if states.espAll or useSelected then
 				createESP(target, useSelected)
 			end
-		end)
+		end
+	)
+
+	data.updateInfo = updateInfo
 
 	return true
 end
@@ -812,43 +1032,33 @@ local function refreshAllESP()
 		removeESP(target)
 	end
 
-	if not states.espAll then
-		return
-	end
-
 	for _, target in ipairs(Players:GetPlayers()) do
 		if target ~= player then
-			createESP(target, false)
+			local selected = selectedESP[target] == true
+
+			if states.espAll or selected then
+				createESP(target, selected)
+			end
 		end
 	end
 end
 
-local function setSelectedESP(target, enabled)
-	if not isValidPlayer(target) then
-		return
-	end
-
-	if enabled then
-		if createESP(target, true) then
-			selectedESP[target] = true
-		end
-	else
-		selectedESP[target] = nil
-
-		if states.espAll then
-			createESP(target, false)
-		else
-			removeESP(target)
+espUpdateConnection = connect(
+	RunService.Heartbeat,
+	function()
+		for _, data in pairs(espObjects) do
+			if data.updateInfo then
+				pcall(data.updateInfo)
+			end
 		end
 	end
-end
+)
 
 --------------------------------------------------
 -- PLAYER LIST
 --------------------------------------------------
 
 local function refreshPlayers()
-
 	for _, child in ipairs(playersScroll:GetChildren()) do
 		if child:IsA("Frame") then
 			child:Destroy()
@@ -859,14 +1069,10 @@ local function refreshPlayers()
 
 	for _, target in ipairs(Players:GetPlayers()) do
 		if target ~= player then
-
 			local friend = false
 
 			pcall(function()
-				friend =
-					player:IsFriendsWith(
-						target.UserId
-					)
+				friend = player:IsFriendsWith(target.UserId)
 			end)
 
 			table.insert(list, {
@@ -877,59 +1083,52 @@ local function refreshPlayers()
 	end
 
 	table.sort(list, function(a, b)
-
 		if a.friend ~= b.friend then
 			return a.friend
 		end
 
-		return
-			a.player.DisplayName:lower()
-			<
-			b.player.DisplayName:lower()
+		local aName = string.lower(a.player.DisplayName)
+		local bName = string.lower(b.player.DisplayName)
+
+		return aName < bName
 	end)
 
 	for _, item in ipairs(list) do
-
 		local target = item.player
 
 		local card = Instance.new("Frame")
 		card.Size = UDim2.new(1, -5, 0, 132)
-		card.BackgroundColor3 =
-			Color3.fromRGB(30, 32, 40)
+		card.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
 		card.BorderSizePixel = 0
 		card.ZIndex = 32
 		card.Parent = playersScroll
 
-		Instance.new("UICorner", card)
-			.CornerRadius = UDim.new(0, 9)
+		Instance.new("UICorner", card).CornerRadius =
+			UDim.new(0, 9)
 
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Size = UDim2.new(1, -10, 0, 25)
 		nameLabel.Position = UDim2.fromOffset(5, 4)
 		nameLabel.BackgroundTransparency = 1
 		nameLabel.Text =
-			target.DisplayName ..
-			"  @" ..
-			target.Name ..
-			(item.friend and "  ⭐ صديق" or "")
+			target.DisplayName
+			.. "  @"
+			.. target.Name
+			.. (item.friend and "  ⭐ صديق" or "")
 		nameLabel.TextColor3 = Color3.new(1, 1, 1)
 		nameLabel.TextSize = 10
 		nameLabel.Font = Enum.Font.GothamBold
-		nameLabel.TextXAlignment =
-			Enum.TextXAlignment.Left
-		nameLabel.TextTruncate =
-			Enum.TextTruncate.AtEnd
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 		nameLabel.ZIndex = 33
 		nameLabel.Parent = card
 
 		local tp = Instance.new("TextButton")
 		tp.Size = UDim2.new(0.32, -5, 0, 34)
 		tp.Position = UDim2.fromOffset(5, 35)
-		tp.BackgroundColor3 =
-			themes[currentTheme]
+		tp.BackgroundColor3 = themes[currentTheme]
 		tp.Text = "📍 TP"
-		tp.TextColor3 =
-			Color3.new(1, 1, 1)
+		tp.TextColor3 = Color3.new(1, 1, 1)
 		tp.TextSize = 10
 		tp.ZIndex = 33
 		tp.Parent = card
@@ -937,80 +1136,63 @@ local function refreshPlayers()
 		local spec = Instance.new("TextButton")
 		spec.Size = UDim2.new(0.32, -5, 0, 34)
 		spec.Position = UDim2.new(0.34, 0, 0, 35)
-		spec.BackgroundColor3 =
-			Color3.fromRGB(65, 67, 75)
+		spec.BackgroundColor3 = Color3.fromRGB(65, 67, 75)
 		spec.Text = "👁 مشاهدة"
-		spec.TextColor3 =
-			Color3.new(1, 1, 1)
+		spec.TextColor3 = Color3.new(1, 1, 1)
 		spec.TextSize = 10
 		spec.ZIndex = 33
 		spec.Parent = card
 
 		local espButton = Instance.new("TextButton")
-		espButton.Size =
-			UDim2.new(0.32, -5, 0, 34)
-		espButton.Position =
-			UDim2.new(0.68, 0, 0, 35)
-		espButton.BackgroundColor3 =
-			Color3.fromRGB(125, 75, 180)
+		espButton.Size = UDim2.new(0.32, -5, 0, 34)
+		espButton.Position = UDim2.new(0.68, 0, 0, 35)
+		espButton.BackgroundColor3 = Color3.fromRGB(125, 75, 180)
 		espButton.Text =
 			selectedESP[target]
 			and "🎯 إيقاف ESP"
 			or "🎯 ESP"
-		espButton.TextColor3 =
-			Color3.new(1, 1, 1)
+		espButton.TextColor3 = Color3.new(1, 1, 1)
 		espButton.TextSize = 10
 		espButton.ZIndex = 33
 		espButton.Parent = card
 
 		local copyButton = Instance.new("TextButton")
-		copyButton.Size =
-			UDim2.new(0.49, -5, 0, 30)
-		copyButton.Position =
-			UDim2.fromOffset(5, 78)
-		copyButton.BackgroundColor3 =
-			Color3.fromRGB(45, 47, 55)
+		copyButton.Size = UDim2.new(0.49, -5, 0, 30)
+		copyButton.Position = UDim2.fromOffset(5, 78)
+		copyButton.BackgroundColor3 = Color3.fromRGB(45, 47, 55)
 		copyButton.Text = "📋 نسخ الاسم"
-		copyButton.TextColor3 =
-			Color3.new(1, 1, 1)
+		copyButton.TextColor3 = Color3.new(1, 1, 1)
 		copyButton.TextSize = 10
 		copyButton.ZIndex = 33
 		copyButton.Parent = card
 
 		local closeButton = Instance.new("TextButton")
-		closeButton.Size =
-			UDim2.new(0.49, -5, 0, 30)
-		closeButton.Position =
-			UDim2.new(0.51, 0, 0, 78)
-		closeButton.BackgroundColor3 =
-			Color3.fromRGB(45, 47, 55)
+		closeButton.Size = UDim2.new(0.49, -5, 0, 30)
+		closeButton.Position = UDim2.new(0.51, 0, 0, 78)
+		closeButton.BackgroundColor3 = Color3.fromRGB(45, 47, 55)
 		closeButton.Text = "إغلاق"
-		closeButton.TextColor3 =
-			Color3.new(1, 1, 1)
+		closeButton.TextColor3 = Color3.new(1, 1, 1)
 		closeButton.TextSize = 10
 		closeButton.ZIndex = 33
 		closeButton.Parent = card
 
-		for _, b in ipairs({
+		for _, button in ipairs({
 			tp,
 			spec,
 			espButton,
 			copyButton,
 			closeButton
 		}) do
-			Instance.new("UICorner", b)
-				.CornerRadius = UDim.new(0, 7)
+			Instance.new("UICorner", button).CornerRadius =
+				UDim.new(0, 7)
 		end
 
-		tp.MouseButton1Click:Connect(function()
-
+		connect(tp.Activated, function()
 			local root = getRoot()
-			local targetChar = target.Character
+			local targetCharacter = target.Character
 			local targetRoot =
-				targetChar
-				and targetChar:FindFirstChild(
-					"HumanoidRootPart"
-				)
+				targetCharacter
+				and targetCharacter:FindFirstChild("HumanoidRootPart")
 
 			if root and targetRoot then
 				root.CFrame =
@@ -1021,37 +1203,32 @@ local function refreshPlayers()
 			end
 		end)
 
-		spec.MouseButton1Click:Connect(function()
+		connect(spec.Activated, function()
+			local targetCharacter = target.Character
 
-			local targetChar = target.Character
-			local hum =
-				targetChar
-				and targetChar:FindFirstChildOfClass(
-					"Humanoid"
-				)
+			local humanoid =
+				targetCharacter
+				and targetCharacter:FindFirstChildOfClass("Humanoid")
 
-			if hum then
-
+			if humanoid then
 				targetPlayer = target
 				states.spectating = true
 
-				camera.CameraSubject = hum
+				local camera = getCamera()
 
-				spectateBox.Text =
-					target.Name
+				if camera then
+					camera.CameraSubject = humanoid
+				end
 
-				spectateButton.Text =
-					"إيقاف المشاهدة"
+				spectateBox.Text = target.Name
+				spectateButton.Text = "إيقاف المشاهدة"
 
-				playersWindow.Visible =
-					false
+				playersWindow.Visible = false
 			end
 		end)
 
-		espButton.MouseButton1Click:Connect(function()
-
+		connect(espButton.Activated, function()
 			if selectedESP[target] then
-
 				selectedESP[target] = nil
 
 				if states.espAll then
@@ -1061,20 +1238,20 @@ local function refreshPlayers()
 				end
 
 				espButton.Text = "🎯 ESP"
-
 			else
-
 				if createESP(target, true) then
 					selectedESP[target] = true
-					espButton.Text =
-						"🎯 إيقاف ESP"
+					espButton.Text = "🎯 إيقاف ESP"
 				end
 			end
 		end)
 
-		copyButton.MouseButton1Click:Connect(function()
-			safeSetClipboard(target.Name)
-			copyButton.Text = "✅ تم النسخ"
+		connect(copyButton.Activated, function()
+			if safeSetClipboard(target.Name) then
+				copyButton.Text = "✅ تم النسخ"
+			else
+				copyButton.Text = "❌ غير مدعوم"
+			end
 
 			task.delay(1, function()
 				if copyButton.Parent then
@@ -1083,44 +1260,40 @@ local function refreshPlayers()
 			end)
 		end)
 
-		closeButton.MouseButton1Click:Connect(function()
+		connect(closeButton.Activated, function()
 			playersWindow.Visible = false
 		end)
 	end
 end
 
-playerListButton.MouseButton1Click:Connect(function()
-
-	playersWindow.Visible =
-		not playersWindow.Visible
+connect(playerListButton.Activated, function()
+	playersWindow.Visible = not playersWindow.Visible
 
 	if playersWindow.Visible then
 		refreshPlayers()
 	end
 end)
 
-closePlayers.MouseButton1Click:Connect(function()
+connect(closePlayers.Activated, function()
 	playersWindow.Visible = false
 end)
 
 --------------------------------------------------
--- TP POINT FUNCTIONS
+-- TP POINTS
 --------------------------------------------------
+
+local refreshTPWindow
 
 local function refreshTPButton()
 	if #tpPoints == 0 then
-		tpListButton.Text =
-			"📋 نقاط TP: فارغة"
+		tpListButton.Text = "📋 نقاط TP: فارغة"
 	else
 		tpListButton.Text =
-			"📋 نقاط TP (" ..
-			#tpPoints ..
-			")"
+			"📋 نقاط TP (" .. tostring(#tpPoints) .. ")"
 	end
 end
 
 local function clearTPCards()
-
 	for _, child in ipairs(tpScroll:GetChildren()) do
 		if child:IsA("Frame")
 			or child:IsA("TextLabel") then
@@ -1129,92 +1302,70 @@ local function clearTPCards()
 	end
 end
 
-local refreshTPWindow
-
 local function createTPCard(point)
-
 	local card = Instance.new("Frame")
-	card.Size =
-		UDim2.new(1, -5, 0, 105)
-	card.BackgroundColor3 =
-		Color3.fromRGB(30, 32, 40)
+	card.Size = UDim2.new(1, -5, 0, 105)
+	card.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
 	card.BorderSizePixel = 0
 	card.ZIndex = 42
 	card.Parent = tpScroll
 
-	Instance.new("UICorner", card)
-		.CornerRadius = UDim.new(0, 9)
+	Instance.new("UICorner", card).CornerRadius =
+		UDim.new(0, 9)
 
 	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size =
-		UDim2.new(1, -10, 0, 28)
-	nameLabel.Position =
-		UDim2.fromOffset(5, 3)
+	nameLabel.Size = UDim2.new(1, -10, 0, 28)
+	nameLabel.Position = UDim2.fromOffset(5, 3)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = point.name
-	nameLabel.TextColor3 =
-		Color3.new(1, 1, 1)
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
 	nameLabel.TextSize = 12
-	nameLabel.Font =
-		Enum.Font.GothamBold
-	nameLabel.TextXAlignment =
-		Enum.TextXAlignment.Left
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.ZIndex = 43
 	nameLabel.Parent = card
 
 	local teleportButton = Instance.new("TextButton")
-	teleportButton.Size =
-		UDim2.new(0.32, -5, 0, 34)
-	teleportButton.Position =
-		UDim2.fromOffset(5, 38)
-	teleportButton.BackgroundColor3 =
-		themes[currentTheme]
+	teleportButton.Size = UDim2.new(0.32, -5, 0, 34)
+	teleportButton.Position = UDim2.fromOffset(5, 38)
+	teleportButton.BackgroundColor3 = themes[currentTheme]
 	teleportButton.Text = "🚀 انتقال"
-	teleportButton.TextColor3 =
-		Color3.new(1, 1, 1)
+	teleportButton.TextColor3 = Color3.new(1, 1, 1)
 	teleportButton.TextSize = 10
 	teleportButton.ZIndex = 43
 	teleportButton.Parent = card
 
 	local renameButton = Instance.new("TextButton")
-	renameButton.Size =
-		UDim2.new(0.32, -5, 0, 34)
-	renameButton.Position =
-		UDim2.new(0.34, 0, 0, 38)
-	renameButton.BackgroundColor3 =
-		Color3.fromRGB(65, 67, 75)
+	renameButton.Size = UDim2.new(0.32, -5, 0, 34)
+	renameButton.Position = UDim2.new(0.34, 0, 0, 38)
+	renameButton.BackgroundColor3 = Color3.fromRGB(65, 67, 75)
 	renameButton.Text = "✏ إعادة تسمية"
-	renameButton.TextColor3 =
-		Color3.new(1, 1, 1)
+	renameButton.TextColor3 = Color3.new(1, 1, 1)
 	renameButton.TextSize = 9
 	renameButton.ZIndex = 43
 	renameButton.Parent = card
 
 	local deleteButton = Instance.new("TextButton")
-	deleteButton.Size =
-		UDim2.new(0.32, -5, 0, 34)
-	deleteButton.Position =
-		UDim2.new(0.68, 0, 0, 38)
-	deleteButton.BackgroundColor3 =
-		Color3.fromRGB(150, 55, 65)
+	deleteButton.Size = UDim2.new(0.32, -5, 0, 34)
+	deleteButton.Position = UDim2.new(0.68, 0, 0, 38)
+	deleteButton.BackgroundColor3 = Color3.fromRGB(150, 55, 65)
 	deleteButton.Text = "🗑 حذف"
-	deleteButton.TextColor3 =
-		Color3.new(1, 1, 1)
+	deleteButton.TextColor3 = Color3.new(1, 1, 1)
 	deleteButton.TextSize = 10
 	deleteButton.ZIndex = 43
 	deleteButton.Parent = card
 
-	for _, b in ipairs({
+	for _, button in ipairs({
 		teleportButton,
 		renameButton,
 		deleteButton
 	}) do
-		Instance.new("UICorner", b)
-			.CornerRadius = UDim.new(0, 7)
+		Instance.new("UICorner", button).CornerRadius =
+			UDim.new(0, 7)
 	end
 
-	teleportButton.MouseButton1Click:Connect(function()
-
+	connect(teleportButton.Activated, function()
 		local root = getRoot()
 
 		if root and point.cframe then
@@ -1226,11 +1377,10 @@ local function createTPCard(point)
 		end
 	end)
 
-	deleteButton.MouseButton1Click:Connect(function()
-
-		for i, v in ipairs(tpPoints) do
-			if v == point then
-				table.remove(tpPoints, i)
+	connect(deleteButton.Activated, function()
+		for index, value in ipairs(tpPoints) do
+			if value == point then
+				table.remove(tpPoints, index)
 				break
 			end
 		end
@@ -1243,38 +1393,30 @@ local function createTPCard(point)
 		refreshTPWindow()
 	end)
 
-	renameButton.MouseButton1Click:Connect(function()
-
+	connect(renameButton.Activated, function()
 		teleportButton.Visible = false
 		renameButton.Visible = false
 		deleteButton.Visible = false
 
 		local box = Instance.new("TextBox")
-		box.Size =
-			UDim2.new(1, -10, 0, 34)
-		box.Position =
-			UDim2.fromOffset(5, 38)
-		box.BackgroundColor3 =
-			Color3.fromRGB(45, 47, 55)
+		box.Size = UDim2.new(1, -10, 0, 34)
+		box.Position = UDim2.fromOffset(5, 38)
+		box.BackgroundColor3 = Color3.fromRGB(45, 47, 55)
 		box.Text = point.name
-		box.PlaceholderText =
-			"اكتب الاسم الجديد"
-		box.TextColor3 =
-			Color3.new(1, 1, 1)
+		box.PlaceholderText = "اكتب الاسم الجديد"
+		box.TextColor3 = Color3.new(1, 1, 1)
 		box.TextSize = 11
 		box.ClearTextOnFocus = false
 		box.ZIndex = 44
 		box.Parent = card
 
-		Instance.new("UICorner", box)
-			.CornerRadius = UDim.new(0, 7)
+		Instance.new("UICorner", box).CornerRadius =
+			UDim.new(0, 7)
 
 		box:CaptureFocus()
 
-		box.FocusLost:Connect(function()
-
-			local newName =
-				trim(box.Text)
+		connect(box.FocusLost, function()
+			local newName = trim(box.Text)
 
 			if newName ~= "" then
 				point.name = newName
@@ -1290,25 +1432,18 @@ local function createTPCard(point)
 end
 
 refreshTPWindow = function()
-
 	clearTPCards()
 
 	if #tpPoints == 0 then
-
 		local empty = Instance.new("TextLabel")
-		empty.Size =
-			UDim2.new(1, -10, 0, 50)
+		empty.Size = UDim2.new(1, -10, 0, 50)
 		empty.BackgroundTransparency = 1
-		empty.Text =
-			"لا توجد نقاط انتقال"
-		empty.TextColor3 =
-			Color3.fromRGB(170, 170, 170)
+		empty.Text = "لا توجد نقاط انتقال"
+		empty.TextColor3 = Color3.fromRGB(170, 170, 170)
 		empty.TextSize = 12
-		empty.Font =
-			Enum.Font.GothamMedium
+		empty.Font = Enum.Font.GothamMedium
 		empty.ZIndex = 42
 		empty.Parent = tpScroll
-
 		return
 	end
 
@@ -1317,8 +1452,7 @@ refreshTPWindow = function()
 	end
 end
 
-saveTPButton.MouseButton1Click:Connect(function()
-
+connect(saveTPButton.Activated, function()
 	local root = getRoot()
 
 	if not root then
@@ -1336,13 +1470,11 @@ saveTPButton.MouseButton1Click:Connect(function()
 
 	table.insert(tpPoints, point)
 
-	saveTPButton.Text =
-		"📍 تم حفظ " .. point.name
+	saveTPButton.Text = "📍 تم حفظ " .. point.name
 
 	task.delay(1.2, function()
 		if saveTPButton.Parent then
-			saveTPButton.Text =
-				"📍 حفظ TP Point"
+			saveTPButton.Text = "📍 حفظ TP Point"
 		end
 	end)
 
@@ -1352,29 +1484,28 @@ saveTPButton.MouseButton1Click:Connect(function()
 	tpWindow.Visible = true
 end)
 
-tpListButton.MouseButton1Click:Connect(function()
-
-	tpWindow.Visible =
-		not tpWindow.Visible
+connect(tpListButton.Activated, function()
+	tpWindow.Visible = not tpWindow.Visible
 
 	if tpWindow.Visible then
 		refreshTPWindow()
 	end
 end)
 
-closeTP.MouseButton1Click:Connect(function()
+connect(closeTP.Activated, function()
 	tpWindow.Visible = false
 end)
 
 --------------------------------------------------
--- MOVEMENT
+-- NOCLIP
 --------------------------------------------------
 
 local function restoreNoclip()
-
 	for part, oldValue in pairs(savedCanCollide) do
 		if part and part.Parent then
-			part.CanCollide = oldValue
+			pcall(function()
+				part.CanCollide = oldValue
+			end)
 		end
 	end
 
@@ -1382,28 +1513,22 @@ local function restoreNoclip()
 end
 
 local function setNoclip(enabled)
-
 	states.noclip = enabled
 
 	if enabled then
+		local character = getCharacter()
 
-		local char = getCharacter()
-
-		if char then
-			for _, obj in ipairs(char:GetDescendants()) do
-
-				if obj:IsA("BasePart") then
-
-					if savedCanCollide[obj] == nil then
-						savedCanCollide[obj] =
-							obj.CanCollide
+		if character then
+			for _, object in ipairs(character:GetDescendants()) do
+				if object:IsA("BasePart") then
+					if savedCanCollide[object] == nil then
+						savedCanCollide[object] = object.CanCollide
 					end
 
-					obj.CanCollide = false
+					object.CanCollide = false
 				end
 			end
 		end
-
 	else
 		restoreNoclip()
 	end
@@ -1414,34 +1539,32 @@ local function setNoclip(enabled)
 		or "نوكلب: إيقاف"
 end
 
-noclipConnection =
-	RunService.Stepped:Connect(function()
-
+noclipConnection = connect(
+	RunService.Stepped,
+	function()
 		if not states.noclip then
 			return
 		end
 
-		local char = getCharacter()
+		local character = getCharacter()
 
-		if not char then
+		if not character then
 			return
 		end
 
-		for _, obj in ipairs(char:GetDescendants()) do
-
-			if obj:IsA("BasePart") then
-
-				if savedCanCollide[obj] == nil then
-					savedCanCollide[obj] =
-						obj.CanCollide
+		for _, object in ipairs(character:GetDescendants()) do
+			if object:IsA("BasePart") then
+				if savedCanCollide[object] == nil then
+					savedCanCollide[object] = object.CanCollide
 				end
 
-				obj.CanCollide = false
+				object.CanCollide = false
 			end
 		end
-	end)
+	end
+)
 
-noclipButton.MouseButton1Click:Connect(function()
+connect(noclipButton.Activated, function()
 	setNoclip(not states.noclip)
 end)
 
@@ -1449,27 +1572,24 @@ end)
 -- INFINITE JUMP
 --------------------------------------------------
 
-UIS.JumpRequest:Connect(function()
-
+connect(UIS.JumpRequest, function()
 	if not states.infiniteJump then
 		return
 	end
 
-	local hum = getHumanoid()
+	local humanoid = getHumanoid()
 
-	if hum
-		and hum.Health > 0 then
+	if humanoid
+		and humanoid.Health > 0 then
 
-		hum:ChangeState(
+		humanoid:ChangeState(
 			Enum.HumanoidStateType.Jumping
 		)
 	end
 end)
 
-infiniteJumpButton.MouseButton1Click:Connect(function()
-
-	states.infiniteJump =
-		not states.infiniteJump
+connect(infiniteJumpButton.Activated, function()
+	states.infiniteJump = not states.infiniteJump
 
 	infiniteJumpButton.Text =
 		states.infiniteJump
@@ -1481,49 +1601,45 @@ end)
 -- SPEED
 --------------------------------------------------
 
-speedButton.MouseButton1Click:Connect(function()
-
+connect(speedButton.Activated, function()
 	speedIndex += 1
 
 	if speedIndex > #speedList then
 		speedIndex = 1
 	end
 
-	local hum = getHumanoid()
+	local humanoid = getHumanoid()
 
-	if hum then
-		hum.WalkSpeed =
-			speedList[speedIndex]
+	if humanoid then
+		humanoid.WalkSpeed = speedList[speedIndex]
 	end
 
 	speedButton.Text =
-		"السرعة: " ..
-		speedList[speedIndex]
+		"السرعة: "
+		.. tostring(speedList[speedIndex])
 end)
 
 --------------------------------------------------
 -- JUMP POWER
 --------------------------------------------------
 
-jumpPowerButton.MouseButton1Click:Connect(function()
-
+connect(jumpPowerButton.Activated, function()
 	jumpIndex += 1
 
 	if jumpIndex > #jumpList then
 		jumpIndex = 1
 	end
 
-	local hum = getHumanoid()
+	local humanoid = getHumanoid()
 
-	if hum then
-		hum.UseJumpPower = true
-		hum.JumpPower =
-			jumpList[jumpIndex]
+	if humanoid then
+		humanoid.UseJumpPower = true
+		humanoid.JumpPower = jumpList[jumpIndex]
 	end
 
 	jumpPowerButton.Text =
-		"قوة القفز: " ..
-		jumpList[jumpIndex]
+		"قوة القفز: "
+		.. tostring(jumpList[jumpIndex])
 end)
 
 --------------------------------------------------
@@ -1531,65 +1647,49 @@ end)
 --------------------------------------------------
 
 local flightControls = Instance.new("Frame")
-flightControls.Size =
-	UDim2.fromOffset(120, 105)
-flightControls.Position =
-	UDim2.new(1, -130, 1, -120)
+flightControls.Name = "FlightControls"
+flightControls.Size = UDim2.fromOffset(120, 105)
+flightControls.Position = UDim2.new(1, -130, 1, -120)
 flightControls.BackgroundTransparency = 1
 flightControls.Visible = false
 flightControls.Parent = gui
 
 local upButton = Instance.new("TextButton")
-upButton.Size =
-	UDim2.fromOffset(55, 42)
-upButton.Position =
-	UDim2.fromOffset(32, 0)
+upButton.Size = UDim2.fromOffset(55, 42)
+upButton.Position = UDim2.fromOffset(32, 0)
 upButton.Text = "▲"
 upButton.TextSize = 20
-upButton.TextColor3 =
-	Color3.new(1, 1, 1)
-upButton.BackgroundColor3 =
-	themes[currentTheme]
+upButton.TextColor3 = Color3.new(1, 1, 1)
+upButton.BackgroundColor3 = themes[currentTheme]
 upButton.Parent = flightControls
 
 local downButton = Instance.new("TextButton")
-downButton.Size =
-	UDim2.fromOffset(55, 42)
-downButton.Position =
-	UDim2.fromOffset(32, 50)
+downButton.Size = UDim2.fromOffset(55, 42)
+downButton.Position = UDim2.fromOffset(32, 50)
 downButton.Text = "▼"
 downButton.TextSize = 20
-downButton.TextColor3 =
-	Color3.new(1, 1, 1)
-downButton.BackgroundColor3 =
-	themes[currentTheme]
+downButton.TextColor3 = Color3.new(1, 1, 1)
+downButton.BackgroundColor3 = themes[currentTheme]
 downButton.Parent = flightControls
 
-Instance.new("UICorner", upButton)
-	.CornerRadius = UDim.new(0, 9)
+Instance.new("UICorner", upButton).CornerRadius =
+	UDim.new(0, 9)
 
-Instance.new("UICorner", downButton)
-	.CornerRadius = UDim.new(0, 9)
+Instance.new("UICorner", downButton).CornerRadius =
+	UDim.new(0, 9)
 
-local function hold(btn, callback)
-
-	btn.InputBegan:Connect(function(input)
-
-		if input.UserInputType ==
-			Enum.UserInputType.Touch
-			or input.UserInputType ==
-			Enum.UserInputType.MouseButton1 then
+local function hold(button, callback)
+	connect(button.InputBegan, function(input)
+		if input.UserInputType == Enum.UserInputType.Touch
+			or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
 			callback(true)
 		end
 	end)
 
-	btn.InputEnded:Connect(function(input)
-
-		if input.UserInputType ==
-			Enum.UserInputType.Touch
-			or input.UserInputType ==
-			Enum.UserInputType.MouseButton1 then
+	connect(button.InputEnded, function(input)
+		if input.UserInputType == Enum.UserInputType.Touch
+			or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
 			callback(false)
 		end
@@ -1609,7 +1709,6 @@ end)
 --------------------------------------------------
 
 local function stopFly()
-
 	states.flying = false
 
 	upHeld = false
@@ -1618,144 +1717,117 @@ local function stopFly()
 	flightControls.Visible = false
 
 	if flyConnection then
-		flyConnection:Disconnect()
+		pcall(function()
+			flyConnection:Disconnect()
+		end)
+
 		flyConnection = nil
 	end
 
 	if flyVelocity then
-		flyVelocity:Destroy()
+		pcall(function()
+			flyVelocity:Destroy()
+		end)
+
 		flyVelocity = nil
 	end
 
 	if flyAttachment then
-		flyAttachment:Destroy()
+		pcall(function()
+			flyAttachment:Destroy()
+		end)
+
 		flyAttachment = nil
 	end
 
-	local hum = getHumanoid()
+	local humanoid = getHumanoid()
 	local root = getRoot()
 
-	if hum then
-		hum.AutoRotate = true
+	if humanoid then
+		humanoid.AutoRotate = true
 	end
 
 	if root then
-		root.AssemblyLinearVelocity =
-			Vector3.zero
+		root.AssemblyLinearVelocity = Vector3.zero
 	end
 
-	flyButton.Text =
-		"✈ الطيران: إيقاف"
+	flyButton.Text = "✈ الطيران: إيقاف"
 end
 
 local function startFly()
-
 	if states.flying then
 		return
 	end
 
-	local hum = getHumanoid()
+	local humanoid = getHumanoid()
 	local root = getRoot()
 
-	if not hum or not root then
+	if not humanoid or not root then
 		return
 	end
 
 	states.flying = true
-
 	flightControls.Visible = true
 
-	hum.AutoRotate = false
+	humanoid.AutoRotate = false
 
-	flyAttachment =
-		Instance.new("Attachment")
-
+	flyAttachment = Instance.new("Attachment")
+	flyAttachment.Name = "T4_FlyAttachment"
 	flyAttachment.Parent = root
 
-	flyVelocity =
-		Instance.new("LinearVelocity")
-
-	flyVelocity.Attachment0 =
-		flyAttachment
-
-	flyVelocity.RelativeTo =
-		Enum.ActuatorRelativeTo.World
-
-	flyVelocity.MaxForce =
-		math.huge
-
-	flyVelocity.VectorVelocity =
-		Vector3.zero
-
+	flyVelocity = Instance.new("LinearVelocity")
+	flyVelocity.Name = "T4_FlyVelocity"
+	flyVelocity.Attachment0 = flyAttachment
+	flyVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+	flyVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	flyVelocity.ForceLimitsEnabled = false
+	flyVelocity.VectorVelocity = Vector3.zero
 	flyVelocity.Parent = root
 
-	flyConnection =
-		RunService.RenderStepped:Connect(function()
-
+	flyConnection = RunService.RenderStepped:Connect(
+		function()
 			if not states.flying then
 				return
 			end
 
-			local currentHum =
-				getHumanoid()
+			local currentHumanoid = getHumanoid()
+			local currentRoot = getRoot()
+			local camera = getCamera()
 
-			local currentRoot =
-				getRoot()
-
-			local cam =
-				workspace.CurrentCamera
-
-			if not currentHum
+			if not currentHumanoid
 				or not currentRoot
-				or not cam then
+				or not camera then
 
 				stopFly()
 				return
 			end
 
-			local move =
-				currentHum.MoveDirection
+			local move = currentHumanoid.MoveDirection
 
-			if UIS:IsKeyDown(
-				Enum.KeyCode.W
-			) then
-				move += cam.CFrame.LookVector
+			if UIS:IsKeyDown(Enum.KeyCode.W) then
+				move += camera.CFrame.LookVector
 			end
 
-			if UIS:IsKeyDown(
-				Enum.KeyCode.S
-			) then
-				move -= cam.CFrame.LookVector
+			if UIS:IsKeyDown(Enum.KeyCode.S) then
+				move -= camera.CFrame.LookVector
 			end
 
-			if UIS:IsKeyDown(
-				Enum.KeyCode.A
-			) then
-				move -= cam.CFrame.RightVector
+			if UIS:IsKeyDown(Enum.KeyCode.A) then
+				move -= camera.CFrame.RightVector
 			end
 
-			if UIS:IsKeyDown(
-				Enum.KeyCode.D
-			) then
-				move += cam.CFrame.RightVector
+			if UIS:IsKeyDown(Enum.KeyCode.D) then
+				move += camera.CFrame.RightVector
 			end
 
 			if upHeld
-				or UIS:IsKeyDown(
-					Enum.KeyCode.Space
-				) then
-
-				move +=
-					Vector3.new(0, 1, 0)
+				or UIS:IsKeyDown(Enum.KeyCode.Space) then
+				move += Vector3.new(0, 1, 0)
 			end
 
 			if downHeld
-				or UIS:IsKeyDown(
-					Enum.KeyCode.LeftControl
-				) then
-
-				move -=
-					Vector3.new(0, 1, 0)
+				or UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+				move -= Vector3.new(0, 1, 0)
 			end
 
 			if move.Magnitude > 0 then
@@ -1765,14 +1837,13 @@ local function startFly()
 				flyVelocity.VectorVelocity =
 					Vector3.zero
 			end
-		end)
+		end
+	)
 
-	flyButton.Text =
-		"✈ الطيران: تشغيل"
+	flyButton.Text = "✈ الطيران: تشغيل"
 end
 
-flyButton.MouseButton1Click:Connect(function()
-
+connect(flyButton.Activated, function()
 	if states.flying then
 		stopFly()
 	else
@@ -1780,21 +1851,18 @@ flyButton.MouseButton1Click:Connect(function()
 	end
 end)
 
-flySpeedButton.MouseButton1Click:Connect(function()
-
+connect(flySpeedButton.Activated, function()
 	flySpeedIndex += 1
 
-	if flySpeedIndex >
-		#flySpeeds then
+	if flySpeedIndex > #flySpeeds then
 		flySpeedIndex = 1
 	end
 
-	flySpeed =
-		flySpeeds[flySpeedIndex]
+	flySpeed = flySpeeds[flySpeedIndex]
 
 	flySpeedButton.Text =
-		"سرعة الطيران: " ..
-		flySpeed
+		"سرعة الطيران: "
+		.. tostring(flySpeed)
 end)
 
 --------------------------------------------------
@@ -1802,115 +1870,100 @@ end)
 --------------------------------------------------
 
 local function stopSpectating()
-
 	states.spectating = false
 	targetPlayer = nil
 
-	local hum = getHumanoid()
+	local humanoid = getHumanoid()
+	local camera = getCamera()
 
-	if hum then
-		camera.CameraSubject = hum
+	if humanoid and camera then
+		camera.CameraSubject = humanoid
 	end
 
-	spectateButton.Text =
-		"👁 مشاهدة"
+	spectateButton.Text = "👁 مشاهدة"
 end
 
-spectateButton.MouseButton1Click:Connect(function()
-
+connect(spectateButton.Activated, function()
 	if states.spectating then
 		stopSpectating()
 		return
 	end
 
-	local target =
-		findPlayer(spectateBox.Text)
+	local target = findPlayer(spectateBox.Text)
 
 	if not isValidPlayer(target) then
 		return
 	end
 
-	local char = target.Character
-	local hum =
-		char
-		and char:FindFirstChildOfClass(
-			"Humanoid"
-		)
+	local character = target.Character
 
-	if hum then
+	local humanoid =
+		character
+		and character:FindFirstChildOfClass("Humanoid")
 
+	if humanoid then
 		targetPlayer = target
 		states.spectating = true
 
-		camera.CameraSubject = hum
+		local camera = getCamera()
 
-		spectateButton.Text =
-			"إيقاف المشاهدة"
+		if camera then
+			camera.CameraSubject = humanoid
+		end
+
+		spectateBox.Text = target.Name
+		spectateButton.Text = "إيقاف المشاهدة"
 	end
 end)
 
-if spectateConnection then
-	spectateConnection:Disconnect()
-end
-
-spectateConnection =
-	RunService.RenderStepped:Connect(function()
-
+spectateConnection = connect(
+	RunService.RenderStepped,
+	function()
 		if not states.spectating then
 			return
 		end
 
-		if not isValidPlayer(
-			targetPlayer
-		) then
-
+		if not isValidPlayer(targetPlayer) then
 			stopSpectating()
 			return
 		end
 
-		local char =
-			targetPlayer.Character
+		local character = targetPlayer.Character
 
-		local hum =
-			char
-			and char:FindFirstChildOfClass(
-				"Humanoid"
-			)
+		local humanoid =
+			character
+			and character:FindFirstChildOfClass("Humanoid")
 
-		if not hum then
-			return
+		local camera = getCamera()
+
+		if humanoid and camera then
+			camera.CameraSubject = humanoid
 		end
-
-		camera.CameraSubject = hum
-	end)
+	end
+)
 
 --------------------------------------------------
--- GOTO
+-- GOTO PLAYER
 --------------------------------------------------
 
-gotoButton.MouseButton1Click:Connect(function()
-
-	local target =
-		findPlayer(gotoBox.Text)
+connect(gotoButton.Activated, function()
+	local target = findPlayer(gotoBox.Text)
 
 	if not isValidPlayer(target) then
 		return
 	end
 
 	local root = getRoot()
-	local targetChar = target.Character
+	local targetCharacter = target.Character
+
 	local targetRoot =
-		targetChar
-		and targetChar:FindFirstChild(
-			"HumanoidRootPart"
-		)
+		targetCharacter
+		and targetCharacter:FindFirstChild("HumanoidRootPart")
 
 	if root and targetRoot then
-
 		root.CFrame =
 			targetRoot.CFrame
 			+ Vector3.new(0, 3, 0)
-
 	end
 end)
 
@@ -1918,10 +1971,8 @@ end)
 -- ESP BUTTONS
 --------------------------------------------------
 
-espAllButton.MouseButton1Click:Connect(function()
-
-	states.espAll =
-		not states.espAll
+connect(espAllButton.Activated, function()
+	states.espAll = not states.espAll
 
 	espAllButton.Text =
 		states.espAll
@@ -1931,10 +1982,8 @@ espAllButton.MouseButton1Click:Connect(function()
 	refreshAllESP()
 end)
 
-espNamesButton.MouseButton1Click:Connect(function()
-
-	states.espNames =
-		not states.espNames
+connect(espNamesButton.Activated, function()
+	states.espNames = not states.espNames
 
 	espNamesButton.Text =
 		states.espNames
@@ -1942,18 +1991,10 @@ espNamesButton.MouseButton1Click:Connect(function()
 		or "أسماء اللاعبين: إيقاف"
 
 	refreshAllESP()
-
-	for target in pairs(selectedESP) do
-		if isValidPlayer(target) then
-			createESP(target, true)
-		end
-	end
 end)
 
-espDistanceButton.MouseButton1Click:Connect(function()
-
-	states.espDistance =
-		not states.espDistance
+connect(espDistanceButton.Activated, function()
+	states.espDistance = not states.espDistance
 
 	espDistanceButton.Text =
 		states.espDistance
@@ -1961,10 +2002,8 @@ espDistanceButton.MouseButton1Click:Connect(function()
 		or "المسافة: إيقاف"
 end)
 
-espHealthButton.MouseButton1Click:Connect(function()
-
-	states.espHealth =
-		not states.espHealth
+connect(espHealthButton.Activated, function()
+	states.espHealth = not states.espHealth
 
 	espHealthButton.Text =
 		states.espHealth
@@ -1972,10 +2011,8 @@ espHealthButton.MouseButton1Click:Connect(function()
 		or "Health: إيقاف"
 end)
 
-teamCheckButton.MouseButton1Click:Connect(function()
-
-	states.teamCheck =
-		not states.teamCheck
+connect(teamCheckButton.Activated, function()
+	states.teamCheck = not states.teamCheck
 
 	teamCheckButton.Text =
 		states.teamCheck
@@ -1983,146 +2020,205 @@ teamCheckButton.MouseButton1Click:Connect(function()
 		or "Team Check: إيقاف"
 
 	refreshAllESP()
-
-	for target in pairs(selectedESP) do
-		if isValidPlayer(target) then
-			if shouldShowESP(target) then
-				createESP(target, true)
-			else
-				removeESP(target)
-			end
-		end
-	end
 end)
 
 --------------------------------------------------
--- PERFORMANCE
+-- PERFORMANCE HELPERS
 --------------------------------------------------
 
-local function savePerformanceStates()
-
-	savedGlobalShadows =
-		Lighting.GlobalShadows
-
-	savedBrightness =
-		Lighting.Brightness
-
-	pcall(function()
-		savedQualityLevel =
-			settings().Rendering.QualityLevel
-	end)
-
-	table.clear(savedPostEffects)
-
-	for _, obj in ipairs(Lighting:GetChildren()) do
-		if obj:IsA("PostEffect") then
-			savedPostEffects[obj] =
-				obj.Enabled
-		end
-	end
+local function isVisualEffect(object)
+	return object:IsA("ParticleEmitter")
+		or object:IsA("Trail")
+		or object:IsA("Beam")
+		or object:IsA("Smoke")
+		or object:IsA("Fire")
+		or object:IsA("Sparkles")
 end
 
-local function restorePerformanceStates()
-
-	Lighting.GlobalShadows =
-		savedGlobalShadows
-
-	Lighting.Brightness =
-		savedBrightness
-
-	pcall(function()
-		if savedQualityLevel then
-			settings().Rendering.QualityLevel =
-				savedQualityLevel
-		end
-	end)
-
-	for obj, state in pairs(
-		savedPostEffects
-	) do
-
-		if obj and obj.Parent then
-			obj.Enabled = state
-		end
-	end
-
-	for obj, state in pairs(
-		savedParticleStates
-	) do
-
-		if obj and obj.Parent then
-			obj.Enabled = state
-		end
-	end
-
-	table.clear(savedPostEffects)
-	table.clear(savedParticleStates)
-end
-
-local function optimizeObject(obj)
-
-	if obj:IsA("BasePart") then
-		obj.CastShadow = false
-	elseif obj:IsA("ParticleEmitter")
-		or obj:IsA("Trail")
-		or obj:IsA("Beam")
-		or obj:IsA("Smoke")
-		or obj:IsA("Fire")
-		or obj:IsA("Sparkles") then
-
-		if savedParticleStates[obj] == nil then
-			savedParticleStates[obj] =
-				obj.Enabled
-		end
-
-		obj.Enabled = false
-	end
-end
-
-local function setFPSBoost(enabled)
-
-	if enabled == states.fpsBoost then
+local function capturePerformance()
+	if performanceSnapshot then
 		return
 	end
 
-	if enabled then
+	performanceSnapshot = {
+		globalShadows = Lighting.GlobalShadows,
+		brightness = Lighting.Brightness,
+		qualityLevel = nil,
+		particles = {},
+		castShadows = {},
+		postEffects = {},
+		atmospheres = {}
+	}
 
-		savePerformanceStates()
+	pcall(function()
+		performanceSnapshot.qualityLevel =
+			settings().Rendering.QualityLevel
+	end)
 
-		states.fpsBoost = true
-
-		pcall(function()
-			settings().Rendering.QualityLevel =
-				Enum.QualityLevel.Level01
-		end)
-
-		Lighting.GlobalShadows = false
-
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			optimizeObject(obj)
+	for _, object in ipairs(workspace:GetDescendants()) do
+		if object:IsA("BasePart") then
+			performanceSnapshot.castShadows[object] =
+				object.CastShadow
+		elseif isVisualEffect(object) then
+			performanceSnapshot.particles[object] =
+				object.Enabled
 		end
-
-		for _, obj in ipairs(
-			Lighting:GetChildren()
-		) do
-
-			if obj:IsA("PostEffect") then
-
-				if savedPostEffects[obj] == nil then
-					savedPostEffects[obj] =
-						obj.Enabled
-				end
-
-				obj.Enabled = false
-			end
-		end
-
-	else
-
-		states.fpsBoost = false
-		restorePerformanceStates()
-
 	end
+
+	for _, object in ipairs(Lighting:GetChildren()) do
+		if object:IsA("PostEffect") then
+			performanceSnapshot.postEffects[object] =
+				object.Enabled
+
+		elseif object:IsA("Atmosphere") then
+			performanceSnapshot.atmospheres[object] = {
+				Density = object.Density,
+				Haze = object.Haze,
+				Glare = object.Glare,
+				Offset = object.Offset
+			}
+		end
+	end
+end
+
+local function restorePerformance()
+	if not performanceSnapshot then
+		return
+	end
+
+	Lighting.GlobalShadows =
+		performanceSnapshot.globalShadows
+
+	Lighting.Brightness =
+		performanceSnapshot.brightness
+
+	pcall(function()
+		if performanceSnapshot.qualityLevel then
+			settings().Rendering.QualityLevel =
+				performanceSnapshot.qualityLevel
+		end
+	end)
+
+	for object, value in pairs(
+		performanceSnapshot.castShadows
+	) do
+		if object and object.Parent then
+			pcall(function()
+				object.CastShadow = value
+			end)
+		end
+	end
+
+	for object, value in pairs(
+		performanceSnapshot.particles
+	) do
+		if object and object.Parent then
+			pcall(function()
+				object.Enabled = value
+			end)
+		end
+	end
+
+	for object, value in pairs(
+		performanceSnapshot.postEffects
+	) do
+		if object and object.Parent then
+			pcall(function()
+				object.Enabled = value
+			end)
+		end
+	end
+
+	for object, value in pairs(
+		performanceSnapshot.atmospheres
+	) do
+		if object and object.Parent then
+			pcall(function()
+				object.Density = value.Density
+				object.Haze = value.Haze
+				object.Glare = value.Glare
+				object.Offset = value.Offset
+			end)
+		end
+	end
+
+	performanceSnapshot = nil
+
+	Lighting.GlobalShadows =
+		states.shadowsEnabled
+
+	for _, object in ipairs(workspace:GetDescendants()) do
+		if isVisualEffect(object) then
+			pcall(function()
+				object.Enabled = states.particlesEnabled
+			end)
+		end
+	end
+end
+
+local function applyPerformance()
+	local active =
+		states.fpsBoost
+		or states.lowQuality
+
+	if not active then
+		restorePerformance()
+		return
+	end
+
+	capturePerformance()
+
+	pcall(function()
+		settings().Rendering.QualityLevel =
+			Enum.QualityLevel.Level01
+	end)
+
+	Lighting.GlobalShadows = false
+
+	if states.lowQuality then
+		Lighting.Brightness = 1
+	end
+
+	for _, object in ipairs(workspace:GetDescendants()) do
+		if object:IsA("BasePart") then
+			pcall(function()
+				object.CastShadow = false
+			end)
+
+		elseif isVisualEffect(object) then
+			pcall(function()
+				object.Enabled = false
+			end)
+		end
+	end
+
+	for _, object in ipairs(Lighting:GetChildren()) do
+		if object:IsA("PostEffect") then
+			pcall(function()
+				object.Enabled = false
+			end)
+
+		elseif states.lowQuality
+			and object:IsA("Atmosphere") then
+
+			pcall(function()
+				object.Density = 0
+				object.Haze = 0
+				object.Glare = 0
+				object.Offset = 0
+			end)
+		end
+	end
+end
+
+--------------------------------------------------
+-- FPS BOOST
+--------------------------------------------------
+
+local function setFPSBoost(enabled)
+	states.fpsBoost = enabled
+
+	applyPerformance()
 
 	fpsBoostButton.Text =
 		states.fpsBoost
@@ -2130,69 +2226,45 @@ local function setFPSBoost(enabled)
 		or "⚡ FPS Boost: إيقاف"
 end
 
-fpsBoostButton.MouseButton1Click:Connect(function()
-	setFPSBoost(
-		not states.fpsBoost
-	)
+connect(fpsBoostButton.Activated, function()
+	setFPSBoost(not states.fpsBoost)
 end)
 
-workspace.DescendantAdded:Connect(function(obj)
-
-	if not states.fpsBoost then
-		return
-	end
-
-	task.defer(function()
-		if states.fpsBoost then
-			optimizeObject(obj)
+connect(
+	workspace.DescendantAdded,
+	function(object)
+		if not states.fpsBoost
+			and not states.lowQuality then
+			return
 		end
-	end)
-end)
+
+		task.defer(function()
+			if not states.fpsBoost
+				and not states.lowQuality then
+				return
+			end
+
+			if object:IsA("BasePart") then
+				pcall(function()
+					object.CastShadow = false
+				end)
+			elseif isVisualEffect(object) then
+				pcall(function()
+					object.Enabled = false
+				end)
+			end
+		end)
+	end
+)
 
 --------------------------------------------------
 -- LOW QUALITY
 --------------------------------------------------
 
 local function setLowQuality(enabled)
+	states.lowQuality = enabled
 
-	if enabled == states.lowQuality then
-		return
-	end
-
-	if enabled then
-
-		savePerformanceStates()
-
-		states.lowQuality = true
-
-		Lighting.GlobalShadows = false
-		Lighting.Brightness = 1
-
-		pcall(function()
-			settings().Rendering.QualityLevel =
-				Enum.QualityLevel.Level01
-		end)
-
-		for _, obj in ipairs(
-			Lighting:GetChildren()
-		) do
-
-			if obj:IsA("PostEffect") then
-				obj.Enabled = false
-
-			elseif obj:IsA("Atmosphere") then
-				obj.Density = 0
-				obj.Haze = 0
-				obj.Glare = 0
-			end
-		end
-
-	else
-
-		states.lowQuality = false
-
-		restorePerformanceStates()
-	end
+	applyPerformance()
 
 	lowQualityButton.Text =
 		states.lowQuality
@@ -2200,23 +2272,24 @@ local function setLowQuality(enabled)
 		or "🎮 Low Quality: إيقاف"
 end
 
-lowQualityButton.MouseButton1Click:Connect(function()
-	setLowQuality(
-		not states.lowQuality
-	)
+connect(lowQualityButton.Activated, function()
+	setLowQuality(not states.lowQuality)
 end)
 
 --------------------------------------------------
 -- SHADOWS
 --------------------------------------------------
 
-shadowsButton.MouseButton1Click:Connect(function()
+connect(shadowsButton.Activated, function()
+	states.shadowsEnabled = not states.shadowsEnabled
 
-	states.shadowsEnabled =
-		not states.shadowsEnabled
-
-	Lighting.GlobalShadows =
-		states.shadowsEnabled
+	if not states.fpsBoost
+		and not states.lowQuality then
+		Lighting.GlobalShadows =
+			states.shadowsEnabled
+	else
+		Lighting.GlobalShadows = false
+	end
 
 	shadowsButton.Text =
 		states.shadowsEnabled
@@ -2228,24 +2301,20 @@ end)
 -- PARTICLES
 --------------------------------------------------
 
-particlesButton.MouseButton1Click:Connect(function()
-
+connect(particlesButton.Activated, function()
 	states.particlesEnabled =
 		not states.particlesEnabled
 
-	for _, obj in ipairs(
-		workspace:GetDescendants()
-	) do
+	if not states.fpsBoost
+		and not states.lowQuality then
 
-		if obj:IsA("ParticleEmitter")
-			or obj:IsA("Trail")
-			or obj:IsA("Beam")
-			or obj:IsA("Smoke")
-			or obj:IsA("Fire")
-			or obj:IsA("Sparkles") then
-
-			obj.Enabled =
-				states.particlesEnabled
+		for _, object in ipairs(workspace:GetDescendants()) do
+			if isVisualEffect(object) then
+				pcall(function()
+					object.Enabled =
+						states.particlesEnabled
+				end)
+			end
 		end
 	end
 
@@ -2265,94 +2334,81 @@ local pingVisible = true
 local fpsLabel = Instance.new("TextLabel")
 fpsLabel.Size = UDim2.fromOffset(105, 25)
 fpsLabel.Position = UDim2.new(1, -113, 0, 8)
-fpsLabel.BackgroundColor3 =
-	Color3.fromRGB(15, 15, 20)
+fpsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 fpsLabel.BackgroundTransparency = 0.2
 fpsLabel.Text = "FPS: ..."
-fpsLabel.TextColor3 =
-	Color3.new(1, 1, 1)
+fpsLabel.TextColor3 = Color3.new(1, 1, 1)
 fpsLabel.TextSize = 11
-fpsLabel.Font =
-	Enum.Font.GothamBold
+fpsLabel.Font = Enum.Font.GothamBold
 fpsLabel.Parent = gui
 
-Instance.new("UICorner", fpsLabel)
-	.CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", fpsLabel).CornerRadius =
+	UDim.new(0, 7)
 
 local pingLabel = Instance.new("TextLabel")
-pingLabel.Size =
-	UDim2.fromOffset(105, 25)
-pingLabel.Position =
-	UDim2.new(1, -113, 0, 38)
-pingLabel.BackgroundColor3 =
-	Color3.fromRGB(15, 15, 20)
+pingLabel.Size = UDim2.fromOffset(105, 25)
+pingLabel.Position = UDim2.new(1, -113, 0, 38)
+pingLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 pingLabel.BackgroundTransparency = 0.2
 pingLabel.Text = "Ping: ..."
-pingLabel.TextColor3 =
-	Color3.new(1, 1, 1)
+pingLabel.TextColor3 = Color3.new(1, 1, 1)
 pingLabel.TextSize = 11
-pingLabel.Font =
-	Enum.Font.GothamBold
+pingLabel.Font = Enum.Font.GothamBold
 pingLabel.Parent = gui
 
-Instance.new("UICorner", pingLabel)
-	.CornerRadius = UDim.new(0, 7)
+Instance.new("UICorner", pingLabel).CornerRadius =
+	UDim.new(0, 7)
 
 local fpsFrames = 0
 local fpsLast = os.clock()
 
-RunService.RenderStepped:Connect(function()
+connect(
+	RunService.RenderStepped,
+	function()
+		fpsFrames += 1
 
-	fpsFrames += 1
+		local now = os.clock()
 
-	local now = os.clock()
+		if now - fpsLast >= 1 then
+			fpsLabel.Text =
+				"FPS: "
+				.. tostring(fpsFrames)
 
-	if now - fpsLast >= 1 then
-
-		fpsLabel.Text =
-			"FPS: " ..
-			fpsFrames
-
-		fpsFrames = 0
-		fpsLast = now
+			fpsFrames = 0
+			fpsLast = now
+		end
 	end
-end)
+)
 
 task.spawn(function()
-
 	while gui.Parent do
-
 		local pingText = "Ping: --"
 
-		local ok, result =
-			pcall(function()
-
-				return Stats
-					.Network
-					.ServerStatsItem[
-						"Data Ping"
-					]:GetValueString()
-			end)
+		local ok, result = pcall(function()
+			return Stats
+				.Network
+				.ServerStatsItem["Data Ping"]
+				:GetValueString()
+		end)
 
 		if ok and result then
 			pingText =
-				"Ping: " ..
-				tostring(result)
+				"Ping: "
+				.. tostring(result)
 		end
 
-		pingLabel.Text = pingText
+		if pingLabel.Parent then
+			pingLabel.Text = pingText
+		end
 
 		task.wait(1)
 	end
 end)
 
-fpsButton.MouseButton1Click:Connect(function()
+connect(fpsButton.Activated, function()
+	fpsVisible = not fpsVisible
 
-	fpsVisible =
-		not fpsVisible
-
-	fpsLabel.Visible =
-		fpsVisible
+	fpsLabel.Visible = fpsVisible
 
 	fpsButton.Text =
 		fpsVisible
@@ -2360,13 +2416,10 @@ fpsButton.MouseButton1Click:Connect(function()
 		or "📊 FPS: إخفاء"
 end)
 
-pingButton.MouseButton1Click:Connect(function()
+connect(pingButton.Activated, function()
+	pingVisible = not pingVisible
 
-	pingVisible =
-		not pingVisible
-
-	pingLabel.Visible =
-		pingVisible
+	pingLabel.Visible = pingVisible
 
 	pingButton.Text =
 		pingVisible
@@ -2375,53 +2428,80 @@ pingButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------
--- GOD / HEALTH
+-- GOD MODE
 --------------------------------------------------
 
 local function stopGod()
-
 	states.godMode = false
 
 	if godConnection then
-		godConnection:Disconnect()
+		pcall(function()
+			godConnection:Disconnect()
+		end)
+
 		godConnection = nil
 	end
 
-	godButton.Text =
-		"🛡️ حماية الصحة: إيقاف"
+	if godHealthConnection then
+		pcall(function()
+			godHealthConnection:Disconnect()
+		end)
+
+		godHealthConnection = nil
+	end
+
+	godButton.Text = "🛡️ حماية الصحة: إيقاف"
 end
 
 local function startGod()
-
 	if godConnection then
-		godConnection:Disconnect()
-		godConnection = nil
+		pcall(function()
+			godConnection:Disconnect()
+		end)
+	end
+
+	if godHealthConnection then
+		pcall(function()
+			godHealthConnection:Disconnect()
+		end)
 	end
 
 	states.godMode = true
 
+	local function protect()
+		if not states.godMode then
+			return
+		end
+
+		local humanoid = getHumanoid()
+
+		if humanoid
+			and humanoid.Health > 0
+			and humanoid.MaxHealth > 0 then
+
+			if humanoid.Health < humanoid.MaxHealth then
+				humanoid.Health =
+					humanoid.MaxHealth
+			end
+		end
+	end
+
 	godConnection =
-		RunService.Heartbeat:Connect(function()
+		RunService.Heartbeat:Connect(protect)
 
-			if not states.godMode then
-				return
-			end
+	local humanoid = getHumanoid()
 
-			local hum =
-				getHumanoid()
+	if humanoid then
+		godHealthConnection =
+			humanoid.HealthChanged:Connect(
+				protect
+			)
+	end
 
-			if hum and hum.Health > 0 then
-				hum.Health =
-					hum.MaxHealth
-			end
-		end)
-
-	godButton.Text =
-		"🛡️ حماية الصحة: تشغيل"
+	godButton.Text = "🛡️ حماية الصحة: تشغيل"
 end
 
-godButton.MouseButton1Click:Connect(function()
-
+connect(godButton.Activated, function()
 	if states.godMode then
 		stopGod()
 	else
@@ -2434,23 +2514,27 @@ end)
 --------------------------------------------------
 
 local function stopAntiFall()
-
 	states.antiFall = false
 
 	if antiFallConnection then
-		antiFallConnection:Disconnect()
+		pcall(function()
+			antiFallConnection:Disconnect()
+		end)
+
 		antiFallConnection = nil
 	end
+
+	safePosition = nil
 
 	antiFallButton.Text =
 		"🪂 منع السقوط: إيقاف"
 end
 
 local function startAntiFall()
-
 	if antiFallConnection then
-		antiFallConnection:Disconnect()
-		antiFallConnection = nil
+		pcall(function()
+			antiFallConnection:Disconnect()
+		end)
 	end
 
 	states.antiFall = true
@@ -2458,35 +2542,36 @@ local function startAntiFall()
 	antiFallConnection =
 		RunService.Heartbeat:Connect(
 			function()
-
-				local root = getRoot()
-
-				if not root then
+				if not states.antiFall then
 					return
 				end
 
-				local y =
-					root.Position.Y
+				local root = getRoot()
+				local humanoid = getHumanoid()
 
-				if y > -20 then
+				if not root or not humanoid then
+					return
+				end
+
+				local y = root.Position.Y
+
+				if y > -20
+					and humanoid.FloorMaterial
+						~= Enum.Material.Air then
+
 					safePosition =
 						root.CFrame
 				end
 
-				if y < -100 then
+				if y < -100
+					and safePosition then
 
-					if safePosition then
-						root.CFrame =
-							safePosition
-							+ Vector3.new(
-								0,
-								5,
-								0
-							)
+					root.CFrame =
+						safePosition
+						+ Vector3.new(0, 5, 0)
 
-						root.AssemblyLinearVelocity =
-							Vector3.zero
-					end
+					root.AssemblyLinearVelocity =
+						Vector3.zero
 				end
 			end
 		)
@@ -2495,8 +2580,7 @@ local function startAntiFall()
 		"🪂 منع السقوط: تشغيل"
 end
 
-antiFallButton.MouseButton1Click:Connect(function()
-
+connect(antiFallButton.Activated, function()
 	if states.antiFall then
 		stopAntiFall()
 	else
@@ -2508,17 +2592,20 @@ end)
 -- AUTO JUMP
 --------------------------------------------------
 
-autoJumpButton.MouseButton1Click:Connect(function()
+connect(autoJumpButton.Activated, function()
+	states.autoJump = not states.autoJump
 
-	states.autoJump =
-		not states.autoJump
+	local humanoid = getHumanoid()
 
-	local hum = getHumanoid()
-
-	if hum then
-		hum.AutoJumpEnabled =
+	if humanoid then
+		humanoid.AutoJumpEnabled =
 			states.autoJump
 	end
+
+	pcall(function()
+		player.AutoJumpEnabled =
+			states.autoJump
+	end)
 
 	autoJumpButton.Text =
 		states.autoJump
@@ -2530,22 +2617,16 @@ end)
 -- HIDE NAME
 --------------------------------------------------
 
-hideNameButton.MouseButton1Click:Connect(function()
+connect(hideNameButton.Activated, function()
+	states.hideName = not states.hideName
 
-	states.hideName =
-		not states.hideName
+	local humanoid = getHumanoid()
 
-	local hum = getHumanoid()
-
-	if hum then
-
-		if states.hideName then
-			hum.DisplayDistanceType =
-				Enum.HumanoidDisplayDistanceType.None
-		else
-			hum.DisplayDistanceType =
-				Enum.HumanoidDisplayDistanceType.Viewer
-		end
+	if humanoid then
+		humanoid.DisplayDistanceType =
+			states.hideName
+			and Enum.HumanoidDisplayDistanceType.None
+			or Enum.HumanoidDisplayDistanceType.Viewer
 	end
 
 	hideNameButton.Text =
@@ -2558,12 +2639,11 @@ end)
 -- RESET CHARACTER
 --------------------------------------------------
 
-resetCharacterButton.MouseButton1Click:Connect(function()
+connect(resetCharacterButton.Activated, function()
+	local humanoid = getHumanoid()
 
-	local hum = getHumanoid()
-
-	if hum then
-		hum.Health = 0
+	if humanoid then
+		humanoid.Health = 0
 	end
 end)
 
@@ -2572,16 +2652,18 @@ end)
 --------------------------------------------------
 
 local function applyFOV()
-	camera.FieldOfView =
-		fovList[fovIndex]
+	local camera = getCamera()
+
+	if camera then
+		camera.FieldOfView = fovList[fovIndex]
+	end
 
 	fovButton.Text =
-		"🎥 FOV: " ..
-		fovList[fovIndex]
+		"🎥 FOV: "
+		.. tostring(fovList[fovIndex])
 end
 
-fovButton.MouseButton1Click:Connect(function()
-
+connect(fovButton.Activated, function()
 	fovIndex += 1
 
 	if fovIndex > #fovList then
@@ -2596,47 +2678,26 @@ end)
 --------------------------------------------------
 
 local function updateTheme()
+	local color = themes[currentTheme]
 
-	local color =
-		themes[currentTheme]
+	title.BackgroundColor3 = color
+	mini.BackgroundColor3 = color
+	frameStroke.Color = color
 
-	title.BackgroundColor3 =
-		color
+	scroll.ScrollBarImageColor3 = color
 
-	mini.BackgroundColor3 =
-		color
+	playersStroke.Color = color
+	playersTitle.BackgroundColor3 = color
 
-	frameStroke.Color =
-		color
+	tpStroke.Color = color
+	tpTitle.BackgroundColor3 = color
 
-	scroll.ScrollBarImageColor3 =
-		color
+	upButton.BackgroundColor3 = color
+	downButton.BackgroundColor3 = color
 
-	playersStroke.Color =
-		color
-
-	playersTitle.BackgroundColor3 =
-		color
-
-	tpStroke.Color =
-		color
-
-	tpTitle.BackgroundColor3 =
-		color
-
-	upButton.BackgroundColor3 =
-		color
-
-	downButton.BackgroundColor3 =
-		color
-
-	for _, sectionObj in ipairs(
-		allSections
-	) do
-
-		if sectionObj.Parent then
-			sectionObj.BackgroundColor3 =
-				color
+	for _, section in ipairs(allSections) do
+		if section.Parent then
+			section.BackgroundColor3 = color
 		end
 	end
 
@@ -2648,24 +2709,18 @@ local function updateTheme()
 		Green = greenThemeButton
 	}
 
-	for name, buttonObj in pairs(
-		themeButtons
-	) do
-
-		buttonObj.BackgroundColor3 =
-			(name == currentTheme)
-			and color
-			or Color3.fromRGB(
-				35,
-				37,
-				45
-			)
+	for name, button in pairs(themeButtons) do
+		if button.Parent then
+			button.BackgroundColor3 =
+				name == currentTheme
+				and color
+				or Color3.fromRGB(35, 37, 45)
+		end
 	end
 
 	for _, data in pairs(espObjects) do
-		if data.highlight then
-			data.highlight.FillColor =
-				color
+		if data.highlight and data.highlight.Parent then
+			data.highlight.FillColor = color
 		end
 	end
 
@@ -2679,69 +2734,55 @@ local function updateTheme()
 end
 
 local function applyTransparency()
+	frame.BackgroundTransparency = uiTransparency
 
-	frame.BackgroundTransparency =
-		uiTransparency
-
-	for _, b in ipairs(
-		allButtons
-	) do
-
-		if b.Parent then
-			b.BackgroundTransparency =
+	for _, button in ipairs(allButtons) do
+		if button.Parent then
+			button.BackgroundTransparency =
 				uiTransparency
 		end
 	end
 
-	for _, s in ipairs(
-		allSections
-	) do
-
-		if s.Parent then
-			s.BackgroundTransparency =
+	for _, section in ipairs(allSections) do
+		if section.Parent then
+			section.BackgroundTransparency =
 				uiTransparency
 		end
 	end
 end
 
-redThemeButton.MouseButton1Click:Connect(function()
+connect(redThemeButton.Activated, function()
 	currentTheme = "Red"
 	updateTheme()
 end)
 
-yellowThemeButton.MouseButton1Click:Connect(function()
+connect(yellowThemeButton.Activated, function()
 	currentTheme = "Yellow"
 	updateTheme()
 end)
 
-pinkThemeButton.MouseButton1Click:Connect(function()
+connect(pinkThemeButton.Activated, function()
 	currentTheme = "Pink"
 	updateTheme()
 end)
 
-blueThemeButton.MouseButton1Click:Connect(function()
+connect(blueThemeButton.Activated, function()
 	currentTheme = "Blue"
 	updateTheme()
 end)
 
-greenThemeButton.MouseButton1Click:Connect(function()
+connect(greenThemeButton.Activated, function()
 	currentTheme = "Green"
 	updateTheme()
 end)
 
-transparencyButton.MouseButton1Click:Connect(function()
-
+connect(transparencyButton.Activated, function()
 	if uiTransparency == 0 then
-
 		uiTransparency = 0.25
-
 		transparencyButton.Text =
 			"🪟 الشفافية: تشغيل"
-
 	else
-
 		uiTransparency = 0
-
 		transparencyButton.Text =
 			"🪟 الشفافية: إيقاف"
 	end
@@ -2749,8 +2790,7 @@ transparencyButton.MouseButton1Click:Connect(function()
 	applyTransparency()
 end)
 
-resetUIButton.MouseButton1Click:Connect(function()
-
+connect(resetUIButton.Activated, function()
 	currentTheme = "Blue"
 	uiTransparency = 0
 
@@ -2765,89 +2805,129 @@ end)
 -- SERVER TOOLS
 --------------------------------------------------
 
-rejoinButton.MouseButton1Click:Connect(function()
+local function teleportToServer(placeId, jobId)
+	if typeof(placeId) ~= "number"
+		or typeof(jobId) ~= "string"
+		or jobId == "" then
+		return false
+	end
 
-	pcall(function()
+	local ok = pcall(function()
 		TeleportService:TeleportToPlaceInstance(
-			game.PlaceId,
-			game.JobId,
+			placeId,
+			jobId,
 			player
 		)
 	end)
 
+	return ok
+end
+
+connect(rejoinButton.Activated, function()
+	rejoinButton.Text = "🔁 Rejoining..."
+
+	if teleportToServer(game.PlaceId, game.JobId) then
+		task.delay(2, function()
+			if rejoinButton.Parent then
+				rejoinButton.Text = "🔁 Rejoin"
+			end
+		end)
+	else
+		rejoinButton.Text = "❌ فشل"
+
+		task.delay(1.5, function()
+			if rejoinButton.Parent then
+				rejoinButton.Text = "🔁 Rejoin"
+			end
+		end)
+	end
 end)
 
-local function getPublicServers()
+--------------------------------------------------
+-- PUBLIC SERVERS
+--------------------------------------------------
 
+local function decodeServerBody(body)
+	if typeof(body) ~= "string"
+		or body == "" then
+		return nil
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(body)
+	end)
+
+	if ok and type(decoded) == "table" then
+		return decoded
+	end
+
+	return nil
+end
+
+local function getPublicServers()
 	local url =
 		"https://games.roblox.com/v1/games/"
 		.. tostring(game.PlaceId)
 		.. "/servers/Public?sortOrder=Asc&limit=100"
 
-	local req = getRequest()
+	local requestFunction = getRequest()
 
-	if req then
+	if requestFunction then
+		local ok, response = pcall(function()
+			return requestFunction({
+				Url = url,
+				Method = "GET"
+			})
+		end)
 
-		local ok, result =
+		if ok and response then
+			local body
+
 			pcall(function()
-				return req({
-					Url = url,
-					Method = "GET"
-				})
+				body = response.Body or response.body
 			end)
 
-		if ok and result then
-			local body =
-				result.Body
-				or result.body
+			local decoded =
+				decodeServerBody(body)
 
-			if body then
-				local decodeOk, decoded =
-					pcall(function()
-						return HttpService:JSONDecode(
-							body
-						)
-					end)
-
-				if decodeOk then
-					return decoded
-				end
+			if decoded then
+				return decoded
 			end
 		end
 	end
 
-	local httpOk, body =
-		pcall(function()
+	local gameHttpGet
+
+	pcall(function()
+		gameHttpGet = game.HttpGet
+	end)
+
+	if typeof(gameHttpGet) == "function" then
+		local ok, body = pcall(function()
 			return game:HttpGet(url)
 		end)
 
-	if httpOk and body then
+		if ok then
+			local decoded =
+				decodeServerBody(body)
 
-		local decodeOk, decoded =
-			pcall(function()
-				return HttpService:JSONDecode(
-					body
-				)
-			end)
-
-		if decodeOk then
-			return decoded
+			if decoded then
+				return decoded
+			end
 		end
 	end
 
 	return nil
 end
 
-serverHopButton.MouseButton1Click:Connect(function()
-
+connect(serverHopButton.Activated, function()
 	serverHopButton.Text =
 		"🌐 البحث عن سيرفر..."
 
-	local data =
-		getPublicServers()
+	local data = getPublicServers()
 
 	if not data
-		or not data.data then
+		or type(data.data) ~= "table" then
 
 		serverHopButton.Text =
 			"❌ تعذر العثور"
@@ -2864,28 +2944,28 @@ serverHopButton.MouseButton1Click:Connect(function()
 
 	local candidates = {}
 
-	for _, server in ipairs(
-		data.data
-	) do
+	for _, server in ipairs(data.data) do
+		if type(server) == "table"
+			and typeof(server.id) == "string"
+			and server.id ~= ""
+			and server.id ~= game.JobId then
 
-		if server.id
-			and server.id ~= game.JobId
-			and (
-				not server.maxPlayers
-				or not server.playing
-				or server.playing <
-					server.maxPlayers
-			) then
+			local playing = tonumber(server.playing)
+			local maxPlayers = tonumber(server.maxPlayers)
 
-			table.insert(
-				candidates,
-				server.id
-			)
+			if not playing
+				or not maxPlayers
+				or playing < maxPlayers then
+
+				table.insert(
+					candidates,
+					server.id
+				)
+			end
 		end
 	end
 
 	if #candidates == 0 then
-
 		serverHopButton.Text =
 			"❌ لا يوجد سيرفر"
 
@@ -2901,22 +2981,16 @@ serverHopButton.MouseButton1Click:Connect(function()
 
 	local selectedJob =
 		candidates[
-			math.random(
-				1,
-				#candidates
-			)
+			math.random(1, #candidates)
 		]
 
 	serverHopButton.Text =
 		"🚀 انتقال..."
 
-	pcall(function()
-		TeleportService:TeleportToPlaceInstance(
-			game.PlaceId,
-			selectedJob,
-			player
-		)
-	end)
+	teleportToServer(
+		game.PlaceId,
+		selectedJob
+	)
 
 	task.delay(2, function()
 		if serverHopButton.Parent then
@@ -2926,19 +3000,24 @@ serverHopButton.MouseButton1Click:Connect(function()
 	end)
 end)
 
-copyJobIdButton.MouseButton1Click:Connect(function()
+--------------------------------------------------
+-- COPY JOB ID
+--------------------------------------------------
 
-	if safeSetClipboard(
-		game.JobId
-	) then
+connect(copyJobIdButton.Activated, function()
+	local jobId = tostring(game.JobId)
 
+	if jobId == "" then
 		copyJobIdButton.Text =
-			"✅ تم نسخ JobId"
-
+			"❌ JobId فارغ"
 	else
-
-		copyJobIdButton.Text =
-			"❌ غير مدعوم"
+		if safeSetClipboard(jobId) then
+			copyJobIdButton.Text =
+				"✅ تم نسخ JobId"
+		else
+			copyJobIdButton.Text =
+				"❌ غير مدعوم"
+		end
 	end
 
 	task.delay(1.2, function()
@@ -2949,17 +3028,15 @@ copyJobIdButton.MouseButton1Click:Connect(function()
 	end)
 end)
 
-copyGameIdButton.MouseButton1Click:Connect(function()
+--------------------------------------------------
+-- COPY GAME ID
+--------------------------------------------------
 
-	if safeSetClipboard(
-		tostring(game.GameId)
-	) then
-
+connect(copyGameIdButton.Activated, function()
+	if safeSetClipboard(tostring(game.GameId)) then
 		copyGameIdButton.Text =
 			"✅ تم نسخ GameId"
-
 	else
-
 		copyGameIdButton.Text =
 			"❌ غير مدعوم"
 	end
@@ -2973,31 +3050,29 @@ copyGameIdButton.MouseButton1Click:Connect(function()
 end)
 
 --------------------------------------------------
--- TP SEARCH
+-- SEARCH AUTO COMPLETE
 --------------------------------------------------
 
-gotoBox.FocusLost:Connect(function()
-	if gotoBox.Text ~= "" then
-		local target =
-			findPlayer(gotoBox.Text)
+connect(gotoBox.FocusLost, function()
+	local text = trim(gotoBox.Text)
+
+	if text ~= "" then
+		local target = findPlayer(text)
 
 		if target then
-			gotoBox.Text =
-				target.Name
+			gotoBox.Text = target.Name
 		end
 	end
 end)
 
-spectateBox.FocusLost:Connect(function()
-	if spectateBox.Text ~= "" then
-		local target =
-			findPlayer(
-				spectateBox.Text
-			)
+connect(spectateBox.FocusLost, function()
+	local text = trim(spectateBox.Text)
+
+	if text ~= "" then
+		local target = findPlayer(text)
 
 		if target then
-			spectateBox.Text =
-				target.Name
+			spectateBox.Text = target.Name
 		end
 	end
 end)
@@ -3006,9 +3081,12 @@ end)
 -- PLAYER EVENTS
 --------------------------------------------------
 
-Players.PlayerAdded:Connect(function()
+connect(Players.PlayerAdded, function()
+	task.wait(0.2)
 
-	task.wait(0.25)
+	if not gui.Parent then
+		return
+	end
 
 	if playersWindow.Visible then
 		refreshPlayers()
@@ -3019,9 +3097,9 @@ Players.PlayerAdded:Connect(function()
 	end
 end)
 
-Players.PlayerRemoving:Connect(function(target)
-
+connect(Players.PlayerRemoving, function(target)
 	removeESP(target)
+
 	selectedESP[target] = nil
 
 	if targetPlayer == target then
@@ -3037,9 +3115,12 @@ end)
 -- CHARACTER
 --------------------------------------------------
 
-player.CharacterAdded:Connect(function()
+connect(player.CharacterAdded, function(character)
+	task.wait(0.35)
 
-	task.wait(0.5)
+	if not character.Parent then
+		return
+	end
 
 	if states.flying then
 		stopFly()
@@ -3047,29 +3128,32 @@ player.CharacterAdded:Connect(function()
 
 	restoreNoclip()
 
-	if states.noclip then
-		setNoclip(true)
-	end
+	local humanoid =
+		character:FindFirstChildOfClass("Humanoid")
 
-	local hum = getHumanoid()
-
-	if hum then
-
-		hum.WalkSpeed =
+	if humanoid then
+		humanoid.WalkSpeed =
 			speedList[speedIndex]
 
-		hum.UseJumpPower = true
+		humanoid.UseJumpPower = true
 
-		hum.JumpPower =
+		humanoid.JumpPower =
 			jumpList[jumpIndex]
 
-		hum.AutoJumpEnabled =
+		humanoid.AutoJumpEnabled =
 			states.autoJump
 
 		if states.hideName then
-			hum.DisplayDistanceType =
+			humanoid.DisplayDistanceType =
 				Enum.HumanoidDisplayDistanceType.None
+		else
+			humanoid.DisplayDistanceType =
+				Enum.HumanoidDisplayDistanceType.Viewer
 		end
+	end
+
+	if states.noclip then
+		setNoclip(true)
 	end
 
 	if states.godMode then
@@ -3080,14 +3164,50 @@ player.CharacterAdded:Connect(function()
 		stopSpectating()
 	end
 
-	if states.espAll then
-		task.wait(0.25)
-		refreshAllESP()
+	safePosition = nil
+
+	if states.antiFall then
+		local root = getRoot()
+
+		if root then
+			safePosition = root.CFrame
+		end
 	end
+
+	if states.espAll then
+		task.wait(0.2)
+
+		if states.espAll then
+			refreshAllESP()
+		end
+	end
+
+	applyFOV()
 end)
 
 --------------------------------------------------
--- FINAL
+-- CURRENT CHARACTER INITIALIZATION
+--------------------------------------------------
+
+do
+	local humanoid = getHumanoid()
+
+	if humanoid then
+		humanoid.WalkSpeed =
+			speedList[speedIndex]
+
+		humanoid.UseJumpPower = true
+
+		humanoid.JumpPower =
+			jumpList[jumpIndex]
+
+		humanoid.AutoJumpEnabled =
+			states.autoJump
+	end
+end
+
+--------------------------------------------------
+-- FINAL INITIALIZATION
 --------------------------------------------------
 
 applyFOV()
@@ -3099,3 +3219,88 @@ refreshTPWindow()
 refreshPlayers()
 
 frame.Visible = true
+fpsLabel.Visible = fpsVisible
+pingLabel.Visible = pingVisible
+
+--------------------------------------------------
+-- RE-EXECUTION CLEANUP
+--------------------------------------------------
+
+local function cleanupT4()
+	states.flying = false
+	states.godMode = false
+	states.antiFall = false
+	states.noclip = false
+	states.spectating = false
+
+	upHeld = false
+	downHeld = false
+
+	if flyConnection then
+		pcall(function()
+			flyConnection:Disconnect()
+		end)
+
+		flyConnection = nil
+	end
+
+	if flyVelocity then
+		pcall(function()
+			flyVelocity:Destroy()
+		end)
+
+		flyVelocity = nil
+	end
+
+	if flyAttachment then
+		pcall(function()
+			flyAttachment:Destroy()
+		end)
+
+		flyAttachment = nil
+	end
+
+	if godConnection then
+		pcall(function()
+			godConnection:Disconnect()
+		end)
+
+		godConnection = nil
+	end
+
+	if godHealthConnection then
+		pcall(function()
+			godHealthConnection:Disconnect()
+		end)
+
+		godHealthConnection = nil
+	end
+
+	if antiFallConnection then
+		pcall(function()
+			antiFallConnection:Disconnect()
+		end)
+
+		antiFallConnection = nil
+	end
+
+	restoreNoclip()
+
+	if performanceSnapshot then
+		restorePerformance()
+	end
+
+	for target in pairs(espObjects) do
+		removeESP(target)
+	end
+
+	disconnectAll()
+
+	pcall(function()
+		if gui and gui.Parent then
+			gui:Destroy()
+		end
+	end)
+end
+
+_G.__T4Cleanup = cleanupT4
