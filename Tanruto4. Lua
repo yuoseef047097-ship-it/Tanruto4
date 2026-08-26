@@ -195,6 +195,21 @@ local Value = {
 }
 
 --------------------------------------------------
+-- DEFAULT MOVEMENT VALUES
+--------------------------------------------------
+
+local DefaultMovement = {
+	WalkSpeed = 16,
+	SprintSpeed = 28,
+	JumpPower = 50,
+	FlySpeed = 65,
+	WallHopSpeed = 55,
+	WallHopPower = 52,
+	DashPower = 90,
+	DashCooldown = 0.65,
+}
+
+--------------------------------------------------
 -- THEMES
 --------------------------------------------------
 
@@ -587,11 +602,12 @@ local SliderSetters = {}
 
 local function CreateSlider(parent, id, text, minimum, maximum, defaultValue, callback)
 	local holder = Instance.new("Frame")
+
+	-- تم إزالة الخلفية الرمادية حول عداد التحكم
 	holder.Size = UDim2.new(1, -4, 0, 52)
-	holder.BackgroundColor3 = Color3.fromRGB(27, 29, 35)
-	holder.BackgroundTransparency = Value.UITransparency
+	holder.BackgroundTransparency = 1
+	holder.BorderSizePixel = 0
 	holder.Parent = parent
-	Round(holder, 7)
 
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, -10, 0, 20)
@@ -607,6 +623,7 @@ local function CreateSlider(parent, id, text, minimum, maximum, defaultValue, ca
 	bar.Size = UDim2.new(1, -12, 0, 7)
 	bar.Position = UDim2.fromOffset(6, 34)
 	bar.BackgroundColor3 = Color3.fromRGB(52, 54, 62)
+	bar.BackgroundTransparency = 0
 	bar.Text = ""
 	bar.AutoButtonColor = false
 	bar.Parent = holder
@@ -758,16 +775,21 @@ local WallHopButton = CreateButton(Movement, "🧱 Wall Hop: إيقاف")
 local DashButton = CreateButton(Movement, "💨 Dash: تشغيل")
 local FlyButton = CreateButton(Movement, "✈️ Fly: إيقاف")
 
+local ResetMovementButton = CreateButton(Movement, "🔄 إعادة ضبط الحركة")
+
 CreateSlider(Movement, "WalkSpeed", "سرعة المشي", 8, 550, Value.WalkSpeed, function(v)
 	Value.WalkSpeed = v
+	ApplyHumanoid()
 end)
 
 CreateSlider(Movement, "SprintSpeed", "سرعة Sprint", 8, 550, Value.SprintSpeed, function(v)
 	Value.SprintSpeed = v
+	ApplyHumanoid()
 end)
 
 CreateSlider(Movement, "JumpPower", "قوة القفز", 20, 550, Value.JumpPower, function(v)
 	Value.JumpPower = v
+	ApplyHumanoid()
 end)
 
 CreateSlider(Movement, "FlySpeed", "سرعة الطيران", 20, 550, Value.FlySpeed, function(v)
@@ -932,6 +954,8 @@ local FlyAttachment
 local FlyVelocity
 local FlyOrientation
 
+local RefreshMobileVisibility
+
 local function StopFly()
 	State.Fly = false
 	State.FlyUp = false
@@ -953,6 +977,10 @@ local function StopFly()
 	end
 
 	FlyButton.Text = "✈️ Fly: إيقاف"
+
+	if RefreshMobileVisibility then
+		RefreshMobileVisibility()
+	end
 end
 
 local function StartFly()
@@ -969,6 +997,9 @@ local function StartFly()
 	end
 
 	State.Fly = true
+	State.FlyUp = false
+	State.FlyDown = false
+
 	humanoid.AutoRotate = false
 
 	FlyAttachment = Instance.new("Attachment")
@@ -994,6 +1025,12 @@ local function StartFly()
 	FlyOrientation.Parent = root
 
 	FlyButton.Text = "✈️ Fly: تشغيل"
+
+	-- إظهار UP / DOWN تلقائياً عند تفعيل الطيران
+	if RefreshMobileVisibility then
+		RefreshMobileVisibility()
+	end
+
 	Notify("✈️ Fly تشغيل", 1)
 end
 
@@ -1138,6 +1175,87 @@ Connect(UIS.JumpRequest, function()
 end)
 
 --------------------------------------------------
+-- RESET MOVEMENT
+--------------------------------------------------
+
+local function ResetMovement()
+	-- إيقاف خصائص الحركة
+	State.Noclip = false
+	State.InfiniteJump = false
+	State.Sprint = false
+	State.WallHop = false
+	State.Dash = true
+
+	-- إيقاف الطيران وإخفاء UP / DOWN
+	StopFly()
+
+	-- إعادة القيم للأرقام الأصلية
+	Value.WalkSpeed = DefaultMovement.WalkSpeed
+	Value.SprintSpeed = DefaultMovement.SprintSpeed
+	Value.JumpPower = DefaultMovement.JumpPower
+	Value.FlySpeed = DefaultMovement.FlySpeed
+	Value.WallHopSpeed = DefaultMovement.WallHopSpeed
+	Value.WallHopPower = DefaultMovement.WallHopPower
+	Value.DashPower = DefaultMovement.DashPower
+	Value.DashCooldown = DefaultMovement.DashCooldown
+
+	-- تحديث الأزرار
+	NoclipButton.Text = "🚧 Noclip: إيقاف"
+	InfiniteJumpButton.Text = "♾️ Infinite Jump: إيقاف"
+	SprintButton.Text = "🏃 Sprint: إيقاف"
+	WallHopButton.Text = "🧱 Wall Hop: إيقاف"
+	DashButton.Text = "💨 Dash: تشغيل"
+	FlyButton.Text = "✈️ Fly: إيقاف"
+
+	-- استرجاع التصادم الطبيعي
+	UpdateNoclip()
+
+	-- تحديث الشخصية
+	ApplyHumanoid()
+
+	-- إعادة تحريك جميع السلايدرات إلى القيم الأصلية
+	if SliderSetters["WalkSpeed"] then
+		SliderSetters["WalkSpeed"](DefaultMovement.WalkSpeed)
+	end
+
+	if SliderSetters["SprintSpeed"] then
+		SliderSetters["SprintSpeed"](DefaultMovement.SprintSpeed)
+	end
+
+	if SliderSetters["JumpPower"] then
+		SliderSetters["JumpPower"](DefaultMovement.JumpPower)
+	end
+
+	if SliderSetters["FlySpeed"] then
+		SliderSetters["FlySpeed"](DefaultMovement.FlySpeed)
+	end
+
+	if SliderSetters["WallHopSpeed"] then
+		SliderSetters["WallHopSpeed"](DefaultMovement.WallHopSpeed)
+	end
+
+	if SliderSetters["WallHopPower"] then
+		SliderSetters["WallHopPower"](DefaultMovement.WallHopPower)
+	end
+
+	if SliderSetters["DashPower"] then
+		SliderSetters["DashPower"](DefaultMovement.DashPower)
+	end
+
+	if SliderSetters["DashCooldown"] then
+		SliderSetters["DashCooldown"](DefaultMovement.DashCooldown)
+	end
+
+	if RefreshMobileVisibility then
+		RefreshMobileVisibility()
+	end
+
+	Notify("🔄 تم إعادة ضبط قسم الحركة", 1)
+end
+
+Connect(ResetMovementButton.Activated, ResetMovement)
+
+--------------------------------------------------
 -- KEYBINDS
 --------------------------------------------------
 
@@ -1278,7 +1396,6 @@ end)
 
 --------------------------------------------------
 -- BUTTONS PAGE
--- EACH MOBILE BUTTON HAS ITS OWN TOGGLE
 --------------------------------------------------
 
 CreateLabel(Buttons, "أزرار الشاشة")
@@ -1292,18 +1409,23 @@ local MobileNoclipToggle = CreateButton(Buttons, "🚧 زر Noclip: إيقاف")
 local ShowMobile = CreateButton(Buttons, "✅ إظهار أزرار الشاشة")
 local HideMobile = CreateButton(Buttons, "🚫 إخفاء أزرار الشاشة")
 
-local function RefreshMobileVisibility()
-	local visible = State.MobileVisible
-	Mobile.Visible = visible
+RefreshMobileVisibility = function()
+	-- القائمة نفسها تظهر إذا فعّل المستخدم أزرار الشاشة
+	-- أو إذا كان Fly يعمل حتى تظهر UP / DOWN تلقائياً
+	Mobile.Visible = State.MobileVisible or State.Fly
 
-	MobileSprint.Visible = visible and State.MobileSprint
-	MobileDash.Visible = visible and State.MobileDash
-	MobileFly.Visible = visible and State.MobileFly
-	MobileWall.Visible = visible and State.MobileWall
-	MobileNoclip.Visible = visible and State.MobileNoclip
-	MobileMenu.Visible = visible
-	MobileUp.Visible = visible and State.MobileFly
-	MobileDown.Visible = visible and State.MobileFly
+	MobileSprint.Visible = State.MobileVisible and State.MobileSprint
+	MobileDash.Visible = State.MobileVisible and State.MobileDash
+	MobileFly.Visible = State.MobileVisible and State.MobileFly
+	MobileWall.Visible = State.MobileVisible and State.MobileWall
+	MobileNoclip.Visible = State.MobileVisible and State.MobileNoclip
+
+	-- زر MENU لا يظهر تلقائياً بسبب Fly
+	MobileMenu.Visible = State.MobileVisible
+
+	-- UP / DOWN يظهران تلقائياً أثناء الطيران
+	MobileUp.Visible = State.Fly
+	MobileDown.Visible = State.Fly
 end
 
 Connect(MobileSprintToggle.Activated, function()
@@ -1957,6 +2079,7 @@ local function RefreshPlayers()
 		Connect(TargetESP.Activated, function()
 			SelectedESP[player] = not SelectedESP[player]
 			RefreshESP()
+			RefreshPlayers()
 		end)
 	end
 end
