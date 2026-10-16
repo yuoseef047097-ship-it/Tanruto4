@@ -1,0 +1,4033 @@
+local Players=game:GetService("Players")
+local UIS=game:GetService("UserInputService")
+local RunService=game:GetService("RunService")
+local TweenService=game:GetService("TweenService")
+
+local Player=Players.LocalPlayer
+local PlayerGui=Player:WaitForChild("PlayerGui")
+local Camera=workspace.CurrentCamera
+
+local CONFIG={
+	Name="MOON SHARINGAN",
+	Version="14.3",
+	Width=276,
+	Height=382,
+
+	DefaultWalkSpeed=16,
+	DefaultJumpPower=50,
+	DefaultFlySpeed=65,
+	DefaultFOV=70,
+
+	DashPower=85,
+	DashCooldown=.65,
+	WallPower=55,
+	WallJump=52,
+
+	LongPress=.48
+}
+
+local FONT={
+	Title=17,
+	Subtitle=12,
+
+	Tab=14,
+	Section=15,
+
+	Button=15,
+	Toggle=14,
+	Slider=14,
+
+	Card=14,
+	Quick=13,
+
+	Player=14,
+	Selected=14,
+	Search=14,
+
+	ESP=14,
+	Notification=14,
+
+	FlyControl=23,
+	Minimize=21
+}
+
+local Theme={
+	Background=Color3.fromRGB(6,7,11),
+	Surface=Color3.fromRGB(13,15,21),
+	Surface2=Color3.fromRGB(20,22,30),
+	Surface3=Color3.fromRGB(28,31,42),
+
+	Text=Color3.fromRGB(247,247,250),
+	Muted=Color3.fromRGB(135,140,157),
+
+	Accent=Color3.fromRGB(180,18,36),
+	Accent2=Color3.fromRGB(245,39,59),
+	AccentDark=Color3.fromRGB(80,6,18),
+
+	Stroke=Color3.fromRGB(90,31,42),
+	Success=Color3.fromRGB(45,190,110),
+	Danger=Color3.fromRGB(220,55,70)
+}
+
+local State={
+	Menu=true,
+
+	Sprint=false,
+	InfiniteJump=false,
+	Noclip=false,
+	WallHop=false,
+
+	Fly=false,
+	FlyUp=false,
+	FlyDown=false,
+	FlyCameraMode=false,
+	ShowFlyControls=true,
+
+	ESP=false,
+	ESPNames=true,
+	ESPHealth=true,
+	ESPDistance=true,
+	TeamCheck=false,
+
+	SelectedPlayer=nil,
+	SelectedESP=false,
+	Spectating=false,
+
+	SmoothFOV=true,
+	Notifications=true,
+	Animations=true,
+
+	QuickLocked=false,
+	QuickSnap=true,
+	QuickSize=46,
+	QuickTransparency=.05
+}
+
+local Values={
+	WalkSpeed=16,
+	SprintSpeed=30,
+	JumpPower=50,
+
+	FlySpeed=65,
+
+	DashPower=85,
+	DashCooldown=.65,
+
+	WallPower=55,
+	WallJump=52,
+
+	ESPDistance=1500,
+
+	FOV=70,
+
+	GUIScale=1,
+	GUITransparency=0
+}
+
+for _,name in ipairs({
+	"MoonSharinganV12",
+	"MoonSharinganV13",
+	"MoonSharinganV14",
+	"MoonSharinganV141",
+	"MoonSharinganV142",
+	"MoonSharinganV143"
+}) do
+	local old=PlayerGui:FindFirstChild(name)
+
+	if old then
+		old:Destroy()
+	end
+end
+
+local Connections={}
+
+local function Connect(signal,callback)
+	local connection=signal:Connect(callback)
+	table.insert(Connections,connection)
+	return connection
+end
+
+local Character
+local Humanoid
+local Root
+
+local function SetupCharacter(character)
+	Character=character
+	Humanoid=character:WaitForChild("Humanoid")
+	Root=character:WaitForChild("HumanoidRootPart")
+
+	Humanoid.UseJumpPower=true
+	Humanoid.JumpPower=Values.JumpPower
+
+	Humanoid.WalkSpeed=
+		State.Sprint and
+		Values.SprintSpeed or
+		Values.WalkSpeed
+end
+
+SetupCharacter(
+	Player.Character or
+	Player.CharacterAdded:Wait()
+)
+
+local function Clamp(value,minValue,maxValue)
+	return math.max(
+		minValue,
+		math.min(maxValue,value)
+	)
+end
+
+local function Corner(object,radius)
+	local corner=Instance.new("UICorner")
+	corner.CornerRadius=UDim.new(0,radius or 10)
+	corner.Parent=object
+	return corner
+end
+
+local function Circle(object)
+	local corner=Instance.new("UICorner")
+	corner.CornerRadius=UDim.new(1,0)
+	corner.Parent=object
+	return corner
+end
+
+local function Stroke(object,color,thickness,transparency)
+	local stroke=Instance.new("UIStroke")
+	stroke.Color=color or Theme.Stroke
+	stroke.Thickness=thickness or 1
+	stroke.Transparency=transparency or 0
+	stroke.Parent=object
+	return stroke
+end
+
+local function Tween(object,time,properties)
+	if not State.Animations then
+		for key,value in pairs(properties) do
+			object[key]=value
+		end
+
+		return
+	end
+
+	local tween=TweenService:Create(
+		object,
+		TweenInfo.new(
+			time,
+			Enum.EasingStyle.Quart,
+			Enum.EasingDirection.Out
+		),
+		properties
+	)
+
+	tween:Play()
+
+	return tween
+end
+
+local GUI=Instance.new("ScreenGui")
+GUI.Name="MoonSharinganV143"
+GUI.ResetOnSpawn=false
+GUI.DisplayOrder=100
+GUI.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+GUI.Parent=PlayerGui
+
+local QuickHolder=Instance.new("Frame")
+QuickHolder.Size=UDim2.fromScale(1,1)
+QuickHolder.BackgroundTransparency=1
+QuickHolder.Parent=GUI
+
+local Main=Instance.new("Frame")
+Main.Size=UDim2.fromOffset(
+	CONFIG.Width,
+	CONFIG.Height
+)
+Main.Position=UDim2.new(
+	0,
+	14,
+	.5,
+	-CONFIG.Height/2
+)
+Main.BackgroundColor3=Theme.Background
+Main.BorderSizePixel=0
+Main.ClipsDescendants=true
+Main.Active=true
+Main.Parent=GUI
+
+Corner(Main,20)
+Stroke(
+	Main,
+	Theme.AccentDark,
+	1.2,
+	.1
+)
+
+local MainScale=Instance.new("UIScale")
+MainScale.Scale=1
+MainScale.Parent=Main
+
+local ResponsiveFactor=1
+
+local function ApplyMainScale()
+	MainScale.Scale=
+		ResponsiveFactor*
+		Values.GUIScale
+end
+
+local function UpdateResponsive()
+	if not Camera then
+		return
+	end
+
+	local viewport=Camera.ViewportSize
+
+	ResponsiveFactor=Clamp(
+		math.min(
+			viewport.X/390,
+			viewport.Y/470
+		),
+		.92,
+		1
+	)
+
+	ApplyMainScale()
+end
+
+UpdateResponsive()
+
+Connect(
+	workspace:GetPropertyChangedSignal(
+		"CurrentCamera"
+	),
+	function()
+		Camera=workspace.CurrentCamera
+		UpdateResponsive()
+	end
+)
+
+local Header=Instance.new("Frame")
+Header.Size=UDim2.new(1,0,0,54)
+Header.BackgroundColor3=Theme.Surface
+Header.BorderSizePixel=0
+Header.Active=true
+Header.Parent=Main
+
+local HeaderLine=Instance.new("Frame")
+HeaderLine.Size=UDim2.new(1,0,0,2)
+HeaderLine.Position=UDim2.new(
+	0,
+	0,
+	1,
+	-2
+)
+HeaderLine.BackgroundColor3=Theme.Accent2
+HeaderLine.BorderSizePixel=0
+HeaderLine.Parent=Header
+
+local function CreateSharingan(parent,size)
+	local Eye=Instance.new("Frame")
+	Eye.Size=UDim2.fromOffset(
+		size,
+		size
+	)
+	Eye.BackgroundColor3=Theme.Accent
+	Eye.BorderSizePixel=0
+	Eye.Parent=parent
+
+	Circle(Eye)
+
+	Stroke(
+		Eye,
+		Theme.Accent2,
+		1.2,
+		.15
+	)
+
+	local Ring=Instance.new("Frame")
+	Ring.Size=UDim2.fromScale(.72,.72)
+	Ring.AnchorPoint=Vector2.new(.5,.5)
+	Ring.Position=UDim2.fromScale(.5,.5)
+	Ring.BackgroundTransparency=1
+	Ring.Parent=Eye
+
+	Circle(Ring)
+
+	Stroke(
+		Ring,
+		Color3.fromRGB(6,3,5),
+		2
+	)
+
+	local Pupil=Instance.new("Frame")
+	Pupil.Size=UDim2.fromScale(.18,.18)
+	Pupil.AnchorPoint=Vector2.new(.5,.5)
+	Pupil.Position=UDim2.fromScale(.5,.5)
+	Pupil.BackgroundColor3=
+		Color3.fromRGB(3,3,5)
+	Pupil.BorderSizePixel=0
+	Pupil.Parent=Eye
+
+	Circle(Pupil)
+
+	for i=1,3 do
+		local angle=
+			math.rad(
+				(i-1)*120-90
+			)
+
+		local dot=Instance.new("Frame")
+
+		dot.Size=UDim2.fromScale(
+			.12,
+			.12
+		)
+
+		dot.AnchorPoint=
+			Vector2.new(.5,.5)
+
+		dot.Position=UDim2.new(
+			.5,
+			math.cos(angle)*size*.27,
+			.5,
+			math.sin(angle)*size*.27
+		)
+
+		dot.BackgroundColor3=
+			Color3.fromRGB(5,3,5)
+
+		dot.BorderSizePixel=0
+		dot.Parent=Eye
+
+		Circle(dot)
+	end
+
+	return Eye
+end
+
+local Logo=CreateSharingan(
+	Header,
+	38
+)
+
+Logo.Position=
+	UDim2.fromOffset(9,8)
+
+local Title=Instance.new("TextLabel")
+Title.Size=UDim2.new(
+	1,
+	-105,
+	0,
+	23
+)
+Title.Position=
+	UDim2.fromOffset(55,5)
+Title.BackgroundTransparency=1
+Title.Text="MOON SHARINGAN"
+Title.TextColor3=Theme.Text
+Title.TextSize=FONT.Title
+Title.Font=Enum.Font.GothamBold
+Title.TextXAlignment=
+	Enum.TextXAlignment.Left
+Title.Parent=Header
+
+local Subtitle=Instance.new("TextLabel")
+Subtitle.Size=UDim2.new(
+	1,
+	-105,
+	0,
+	16
+)
+Subtitle.Position=
+	UDim2.fromOffset(55,29)
+Subtitle.BackgroundTransparency=1
+Subtitle.Text="V14.3 • REBORN"
+Subtitle.TextColor3=Theme.Accent2
+Subtitle.TextSize=FONT.Subtitle
+Subtitle.Font=Enum.Font.GothamMedium
+Subtitle.TextXAlignment=
+	Enum.TextXAlignment.Left
+Subtitle.Parent=Header
+
+local Minimize=Instance.new("TextButton")
+Minimize.Size=
+	UDim2.fromOffset(31,31)
+
+Minimize.Position=
+	UDim2.new(
+		1,
+		-38,
+		0,
+		11
+	)
+
+Minimize.BackgroundColor3=
+	Theme.Surface2
+
+Minimize.BorderSizePixel=0
+Minimize.Text="−"
+Minimize.TextColor3=Theme.Text
+Minimize.TextSize=FONT.Minimize
+Minimize.Font=Enum.Font.GothamBold
+Minimize.AutoButtonColor=false
+Minimize.Parent=Header
+
+Corner(Minimize,10)
+
+local Mini=Instance.new("TextButton")
+Mini.Size=
+	UDim2.fromOffset(46,46)
+
+Mini.Position=
+	UDim2.new(
+		0,
+		12,
+		.5,
+		-23
+	)
+
+Mini.BackgroundColor3=
+	Theme.AccentDark
+
+Mini.BorderSizePixel=0
+Mini.Text=""
+Mini.Visible=false
+Mini.AutoButtonColor=false
+Mini.ZIndex=100
+Mini.Parent=GUI
+
+Circle(Mini)
+
+Stroke(
+	Mini,
+	Theme.Accent2,
+	1.4,
+	.1
+)
+
+local MiniEye=
+	CreateSharingan(
+		Mini,
+		32
+	)
+
+MiniEye.AnchorPoint=
+	Vector2.new(.5,.5)
+
+MiniEye.Position=
+	UDim2.fromScale(.5,.5)
+
+MiniEye.ZIndex=101
+
+local Tabs=Instance.new("ScrollingFrame")
+Tabs.Size=
+	UDim2.new(
+		1,
+		-10,
+		0,
+		38
+	)
+
+Tabs.Position=
+	UDim2.fromOffset(5,59)
+
+Tabs.BackgroundTransparency=1
+Tabs.BorderSizePixel=0
+Tabs.ScrollBarThickness=0
+Tabs.ScrollingDirection=
+	Enum.ScrollingDirection.X
+
+Tabs.AutomaticCanvasSize=
+	Enum.AutomaticSize.X
+
+Tabs.Parent=Main
+
+local TabsLayout=
+	Instance.new("UIListLayout")
+
+TabsLayout.FillDirection=
+	Enum.FillDirection.Horizontal
+
+TabsLayout.Padding=
+	UDim.new(0,5)
+
+TabsLayout.Parent=Tabs
+
+local Content=Instance.new("Frame")
+Content.Size=
+	UDim2.new(
+		1,
+		-10,
+		1,
+		-103
+	)
+
+Content.Position=
+	UDim2.fromOffset(5,100)
+
+Content.BackgroundTransparency=1
+Content.ClipsDescendants=true
+Content.Parent=Main
+
+local Pages={}
+local TabButtons={}
+
+local function CreatePage(name)
+	local Page=
+		Instance.new("ScrollingFrame")
+
+	Page.Name=name
+	Page.Size=
+		UDim2.fromScale(1,1)
+
+	Page.BackgroundTransparency=1
+	Page.BorderSizePixel=0
+
+	Page.AutomaticCanvasSize=
+		Enum.AutomaticSize.Y
+
+	Page.ScrollingDirection=
+		Enum.ScrollingDirection.Y
+
+	Page.ScrollBarThickness=2
+
+	Page.ScrollBarImageColor3=
+		Theme.Accent2
+
+	Page.Visible=false
+	Page.Parent=Content
+
+	local Padding=
+		Instance.new("UIPadding")
+
+	Padding.PaddingTop=
+		UDim.new(0,2)
+
+	Padding.PaddingRight=
+		UDim.new(0,4)
+
+	Padding.PaddingBottom=
+		UDim.new(0,40)
+
+	Padding.Parent=Page
+
+	local Layout=
+		Instance.new("UIListLayout")
+
+	Layout.Padding=
+		UDim.new(0,6)
+
+	Layout.Parent=Page
+
+	Pages[name]=Page
+
+	return Page
+end
+
+local function ShowPage(name)
+	for pageName,page in pairs(Pages) do
+		page.Visible=
+			pageName==name
+	end
+
+	for tabName,button in pairs(TabButtons) do
+		local selected=
+			tabName==name
+
+		button.BackgroundColor3=
+			selected and
+			Theme.AccentDark or
+			Theme.Surface2
+
+		button.TextColor3=
+			selected and
+			Theme.Text or
+			Theme.Muted
+	end
+end
+
+local function CreateTab(name,icon)
+	local Page=
+		CreatePage(name)
+
+	local Button=
+		Instance.new("TextButton")
+
+	Button.Size=
+		UDim2.fromOffset(
+			86,
+			32
+		)
+
+	Button.BackgroundColor3=
+		Theme.Surface2
+
+	Button.BorderSizePixel=0
+
+	Button.Text=
+		icon.." "..name
+
+	Button.TextColor3=
+		Theme.Muted
+
+	Button.TextSize=
+		FONT.Tab
+
+	Button.Font=
+		Enum.Font.GothamBold
+
+	Button.AutoButtonColor=false
+	Button.Parent=Tabs
+
+	Corner(Button,9)
+
+	Connect(
+		Button.Activated,
+		function()
+			ShowPage(name)
+		end
+	)
+
+	TabButtons[name]=Button
+
+	return Page
+end
+
+local Home=
+	CreateTab(
+		"الرئيسية",
+		"⌂"
+	)
+
+local Movement=
+	CreateTab(
+		"الحركة",
+		"⚡"
+	)
+
+local Flight=
+	CreateTab(
+		"الطيران",
+		"▲"
+	)
+
+local TeleportPage=
+	CreateTab(
+		"الانتقال",
+		"◆"
+	)
+
+local ESPPage=
+	CreateTab(
+		"ESP",
+		"◉"
+	)
+
+local PlayersPage=
+	CreateTab(
+		"اللاعبون",
+		"●"
+	)
+
+local CameraPage=
+	CreateTab(
+		"الكاميرا",
+		"◎"
+	)
+
+local QuickPage=
+	CreateTab(
+		"العائمة",
+		"◆"
+	)
+
+local Settings=
+	CreateTab(
+		"الإعدادات",
+		"⚙"
+	)
+
+local function Section(parent,text)
+	local Holder=
+		Instance.new("Frame")
+
+	Holder.Size=
+		UDim2.new(
+			1,
+			-2,
+			0,
+			33
+		)
+
+	Holder.BackgroundColor3=
+		Theme.Surface
+
+	Holder.BorderSizePixel=0
+	Holder.Parent=parent
+
+	Corner(Holder,9)
+
+	local Accent=
+		Instance.new("Frame")
+
+	Accent.Size=
+		UDim2.fromOffset(
+			3,
+			19
+		)
+
+	Accent.Position=
+		UDim2.fromOffset(
+			7,
+			7
+		)
+
+	Accent.BackgroundColor3=
+		Theme.Accent2
+
+	Accent.BorderSizePixel=0
+	Accent.Parent=Holder
+
+	Corner(Accent,3)
+
+	local Label=
+		Instance.new("TextLabel")
+
+	Label.Size=
+		UDim2.new(
+			1,
+			-22,
+			1,
+			0
+		)
+
+	Label.Position=
+		UDim2.fromOffset(
+			17,
+			0
+		)
+
+	Label.BackgroundTransparency=1
+	Label.Text=text
+	Label.TextColor3=Theme.Text
+	Label.TextSize=FONT.Section
+	Label.Font=Enum.Font.GothamBold
+
+	Label.TextXAlignment=
+		Enum.TextXAlignment.Left
+
+	Label.Parent=Holder
+
+	return Holder
+end
+
+local QuickButtons={}
+
+local function RemoveQuick(id)
+	local data=
+		QuickButtons[id]
+
+	if data then
+		if data.Button then
+			data.Button:Destroy()
+		end
+
+		QuickButtons[id]=nil
+	end
+end
+
+local function UpdateQuickSettings()
+	for _,data in pairs(QuickButtons) do
+		data.Button.Size=
+			UDim2.fromOffset(
+				State.QuickSize,
+				State.QuickSize
+			)
+
+		data.Button.BackgroundTransparency=
+			State.QuickTransparency
+	end
+end
+
+local function CreateQuick(
+	id,
+	text,
+	callback,
+	position
+)
+	if not id or QuickButtons[id] then
+		return
+	end
+
+	local Button=
+		Instance.new("TextButton")
+
+	Button.Size=
+		UDim2.fromOffset(
+			State.QuickSize,
+			State.QuickSize
+		)
+
+	Button.Position=
+		position or
+		UDim2.new(
+			1,
+			-70,
+			.5,
+			-25
+		)
+
+	Button.BackgroundColor3=
+		Theme.Surface
+
+	Button.BackgroundTransparency=
+		State.QuickTransparency
+
+	Button.BorderSizePixel=0
+	Button.Text=text
+	Button.TextColor3=Theme.Text
+	Button.TextSize=FONT.Quick
+	Button.TextWrapped=true
+	Button.Font=Enum.Font.GothamBold
+	Button.AutoButtonColor=false
+	Button.Active=true
+	Button.ZIndex=80
+	Button.Parent=QuickHolder
+
+	Circle(Button)
+
+	Stroke(
+		Button,
+		Theme.Accent2,
+		1.2,
+		.1
+	)
+
+	local Dragging=false
+	local Moved=false
+
+	local ActiveInput
+	local Start
+	local StartPosition
+
+	Connect(
+		Button.InputBegan,
+		function(input)
+			if
+				input.UserInputType~=
+					Enum.UserInputType.Touch
+				and
+				input.UserInputType~=
+					Enum.UserInputType.MouseButton1
+			then
+				return
+			end
+
+			if State.QuickLocked then
+				callback()
+				return
+			end
+
+			Dragging=true
+			Moved=false
+
+			ActiveInput=input
+			Start=input.Position
+			StartPosition=Button.Position
+		end
+	)
+
+	Connect(
+		UIS.InputChanged,
+		function(input)
+			if not Dragging then
+				return
+			end
+
+			local valid=
+				input==ActiveInput or
+				(
+					ActiveInput and
+					ActiveInput.UserInputType==
+						Enum.UserInputType.MouseButton1 and
+					input.UserInputType==
+						Enum.UserInputType.MouseMovement
+				)
+
+			if not valid then
+				return
+			end
+
+			local delta=
+				input.Position-Start
+
+			if delta.Magnitude>6 then
+				Moved=true
+			end
+
+			Button.Position=
+				UDim2.new(
+					StartPosition.X.Scale,
+					StartPosition.X.Offset+delta.X,
+					StartPosition.Y.Scale,
+					StartPosition.Y.Offset+delta.Y
+				)
+		end
+	)
+
+	Connect(
+		UIS.InputEnded,
+		function(input)
+			if input~=ActiveInput then
+				return
+			end
+
+			Dragging=false
+			ActiveInput=nil
+
+			if not Moved then
+				callback()
+			end
+		end
+	)
+
+	QuickButtons[id]={
+		Button=Button,
+		Callback=callback
+	}
+
+	return Button
+end
+
+local function ActionButton(
+	parent,
+	id,
+	text,
+	quickText,
+	callback
+)
+	local Button=
+		Instance.new("TextButton")
+
+	Button.Size=
+		UDim2.new(
+			1,
+			-2,
+			0,
+			42
+		)
+
+	Button.BackgroundColor3=
+		Theme.Surface2
+
+	Button.BorderSizePixel=0
+
+	Button.Text=
+		"  "..text
+
+	Button.TextColor3=
+		Theme.Text
+
+	Button.TextSize=
+		FONT.Button
+
+	Button.Font=
+		Enum.Font.GothamMedium
+
+	Button.TextXAlignment=
+		Enum.TextXAlignment.Left
+
+	Button.AutoButtonColor=false
+	Button.Active=true
+	Button.Parent=parent
+
+	Corner(Button,10)
+
+	local Pin=
+		Instance.new("TextLabel")
+
+	Pin.Size=
+		UDim2.fromOffset(
+			25,
+			42
+		)
+
+	Pin.Position=
+		UDim2.new(
+			1,
+			-28,
+			0,
+			0
+		)
+
+	Pin.BackgroundTransparency=1
+
+	Pin.Text=
+		id and
+		"◆" or
+		""
+
+	Pin.TextColor3=
+		Theme.Accent2
+
+	Pin.TextSize=14
+	Pin.Font=Enum.Font.GothamBold
+	Pin.Parent=Button
+
+	local Pressing=false
+	local LongPress=false
+
+	local ActiveInput
+	local Ghost
+
+	Connect(
+		Button.InputBegan,
+		function(input)
+			if
+				input.UserInputType~=
+					Enum.UserInputType.Touch
+				and
+				input.UserInputType~=
+					Enum.UserInputType.MouseButton1
+			then
+				return
+			end
+
+			Pressing=true
+			LongPress=false
+			ActiveInput=input
+
+			task.delay(
+				CONFIG.LongPress,
+				function()
+					if
+						not Pressing or
+						ActiveInput~=input or
+						not id
+					then
+						return
+					end
+
+					LongPress=true
+
+					Ghost=
+						Instance.new(
+							"TextLabel"
+						)
+
+					Ghost.Size=
+						UDim2.fromOffset(
+							State.QuickSize,
+							State.QuickSize
+						)
+
+					Ghost.AnchorPoint=
+						Vector2.new(.5,.5)
+
+					Ghost.Position=
+						UDim2.fromOffset(
+							input.Position.X,
+							input.Position.Y
+						)
+
+					Ghost.BackgroundColor3=
+						Theme.AccentDark
+
+					Ghost.Text=
+						quickText
+
+					Ghost.TextColor3=
+						Theme.Text
+
+					Ghost.TextSize=
+						FONT.Quick
+
+					Ghost.Font=
+						Enum.Font.GothamBold
+
+					Ghost.ZIndex=150
+					Ghost.Parent=GUI
+
+					Circle(Ghost)
+				end
+			)
+		end
+	)
+
+	Connect(
+		UIS.InputChanged,
+		function(input)
+			if
+				Pressing and
+				LongPress and
+				Ghost
+			then
+				local valid=
+					input==ActiveInput or
+					(
+						ActiveInput and
+						ActiveInput.UserInputType==
+							Enum.UserInputType.MouseButton1 and
+						input.UserInputType==
+							Enum.UserInputType.MouseMovement
+					)
+
+				if valid then
+					Ghost.Position=
+						UDim2.fromOffset(
+							input.Position.X,
+							input.Position.Y
+						)
+				end
+			end
+		end
+	)
+
+	Connect(
+		UIS.InputEnded,
+		function(input)
+			if input~=ActiveInput then
+				return
+			end
+
+			Pressing=false
+			ActiveInput=nil
+
+			if LongPress then
+				local p=
+					input.Position
+
+				local mp=
+					Main.AbsolutePosition
+
+				local ms=
+					Main.AbsoluteSize
+
+				if
+					p.X<mp.X or
+					p.X>mp.X+ms.X or
+					p.Y<mp.Y or
+					p.Y>mp.Y+ms.Y
+				then
+					CreateQuick(
+						id,
+						quickText,
+						callback,
+						UDim2.fromOffset(
+							p.X-State.QuickSize/2,
+							p.Y-State.QuickSize/2
+						)
+					)
+				end
+
+				if Ghost then
+					Ghost:Destroy()
+					Ghost=nil
+				end
+			else
+				callback()
+			end
+		end
+	)
+
+	return Button
+end
+
+local function ToggleRow(
+	parent,
+	id,
+	text,
+	default,
+	callback,
+	quickText
+)
+	local Holder=
+		Instance.new("Frame")
+
+	Holder.Size=
+		UDim2.new(
+			1,
+			-2,
+			0,
+			44
+		)
+
+	Holder.BackgroundColor3=
+		Theme.Surface2
+
+	Holder.BorderSizePixel=0
+	Holder.Parent=parent
+
+	Corner(Holder,10)
+
+	local Label=
+		Instance.new("TextLabel")
+
+	Label.Size=
+		UDim2.new(
+			1,
+			-75,
+			1,
+			0
+		)
+
+	Label.Position=
+		UDim2.fromOffset(
+			11,
+			0
+		)
+
+	Label.BackgroundTransparency=1
+	Label.Text=text
+	Label.TextColor3=Theme.Text
+	Label.TextSize=FONT.Toggle
+	Label.Font=Enum.Font.GothamMedium
+
+	Label.TextXAlignment=
+		Enum.TextXAlignment.Left
+
+	Label.Parent=Holder
+
+	local ToggleButton=
+		Instance.new("TextButton")
+
+	ToggleButton.Size=
+		UDim2.fromOffset(
+			42,
+			22
+		)
+
+	ToggleButton.Position=
+		UDim2.new(
+			1,
+			-52,
+			.5,
+			-11
+		)
+
+	ToggleButton.BackgroundColor3=
+		default and
+		Theme.AccentDark or
+		Theme.Surface3
+
+	ToggleButton.BorderSizePixel=0
+	ToggleButton.Text=""
+	ToggleButton.Parent=Holder
+
+	Corner(ToggleButton,20)
+
+	local Knob=
+		Instance.new("Frame")
+
+	Knob.Size=
+		UDim2.fromOffset(
+			16,
+			16
+		)
+
+	Knob.Position=
+		default and
+		UDim2.fromOffset(23,3) or
+		UDim2.fromOffset(3,3)
+
+	Knob.BackgroundColor3=
+		default and
+		Theme.Accent2 or
+		Theme.Muted
+
+	Knob.BorderSizePixel=0
+	Knob.Parent=ToggleButton
+
+	Circle(Knob)
+
+	local Value=default
+
+	local function Set(value)
+		Value=value
+
+		ToggleButton.BackgroundColor3=
+			value and
+			Theme.AccentDark or
+			Theme.Surface3
+
+		Knob.Position=
+			value and
+			UDim2.fromOffset(23,3) or
+			UDim2.fromOffset(3,3)
+
+		Knob.BackgroundColor3=
+			value and
+			Theme.Accent2 or
+			Theme.Muted
+
+		callback(value)
+	end
+
+	local function Toggle()
+		Set(not Value)
+	end
+
+	Connect(
+		ToggleButton.Activated,
+		Toggle
+	)
+
+	if id and quickText then
+		local Pin=
+			Instance.new("TextButton")
+
+		Pin.Size=
+			UDim2.fromOffset(
+				20,
+				20
+			)
+
+		Pin.Position=
+			UDim2.new(
+				1,
+				-76,
+				.5,
+				-10
+			)
+
+		Pin.BackgroundTransparency=1
+		Pin.Text="◆"
+		Pin.TextColor3=Theme.Accent2
+		Pin.TextSize=14
+		Pin.Font=Enum.Font.GothamBold
+		Pin.Parent=Holder
+
+		Connect(
+			Pin.Activated,
+			function()
+				CreateQuick(
+					id,
+					quickText,
+					Toggle
+				)
+			end
+		)
+	end
+
+	return {
+		Set=Set,
+		Get=function()
+			return Value
+		end
+	}
+end
+
+local function Slider(
+	parent,
+	text,
+	min,
+	max,
+	default,
+	callback,
+	suffix
+)
+	local Holder=
+		Instance.new("Frame")
+
+	Holder.Size=
+		UDim2.new(
+			1,
+			-2,
+			0,
+			62
+		)
+
+	Holder.BackgroundColor3=
+		Theme.Surface2
+
+	Holder.BorderSizePixel=0
+	Holder.Parent=parent
+
+	Corner(Holder,10)
+
+	local Label=
+		Instance.new("TextLabel")
+
+	Label.Size=
+		UDim2.new(
+			1,
+			-20,
+			0,
+			29
+		)
+
+	Label.Position=
+		UDim2.fromOffset(
+			10,
+			2
+		)
+
+	Label.BackgroundTransparency=1
+
+	Label.TextColor3=
+		Theme.Text
+
+	Label.TextSize=
+		FONT.Slider
+
+	Label.Font=
+		Enum.Font.GothamMedium
+
+	Label.TextXAlignment=
+		Enum.TextXAlignment.Left
+
+	Label.Parent=Holder
+
+	local Bar=
+		Instance.new("Frame")
+
+	Bar.Size=
+		UDim2.new(
+			1,
+			-24,
+			0,
+			8
+		)
+
+	Bar.Position=
+		UDim2.new(
+			0,
+			12,
+			1,
+			-18
+		)
+
+	Bar.BackgroundColor3=
+		Theme.Surface3
+
+	Bar.BorderSizePixel=0
+	Bar.Active=true
+	Bar.Parent=Holder
+
+	Corner(Bar,6)
+
+	local Fill=
+		Instance.new("Frame")
+
+	Fill.BackgroundColor3=
+		Theme.Accent2
+
+	Fill.BorderSizePixel=0
+	Fill.Parent=Bar
+
+	Corner(Fill,6)
+
+	local Value=default
+
+	local function Set(value)
+		Value=
+			math.floor(
+				Clamp(
+					value,
+					min,
+					max
+				)+.5
+			)
+
+		local percent=
+			(Value-min)/
+			(max-min)
+
+		Fill.Size=
+			UDim2.fromScale(
+				percent,
+				1
+			)
+
+		Label.Text=
+			text..
+			"   "..
+			Value..
+			(suffix or "")
+
+		callback(Value)
+	end
+
+	local Dragging=false
+	local ActiveInput
+
+	local function Update(input)
+		Set(
+			min+
+			(max-min)*
+			Clamp(
+				(
+					input.Position.X-
+					Bar.AbsolutePosition.X
+				)/
+				Bar.AbsoluteSize.X,
+				0,
+				1
+			)
+		)
+	end
+
+	Connect(
+		Bar.InputBegan,
+		function(input)
+			if
+				input.UserInputType==
+					Enum.UserInputType.Touch
+				or
+				input.UserInputType==
+					Enum.UserInputType.MouseButton1
+			then
+				Dragging=true
+				ActiveInput=input
+				Update(input)
+			end
+		end
+	)
+
+	Connect(
+		UIS.InputChanged,
+		function(input)
+			if not Dragging then
+				return
+			end
+
+			local valid=
+				input==ActiveInput or
+				(
+					ActiveInput and
+					ActiveInput.UserInputType==
+						Enum.UserInputType.MouseButton1 and
+					input.UserInputType==
+						Enum.UserInputType.MouseMovement
+				)
+
+			if valid then
+				Update(input)
+			end
+		end
+	)
+
+	Connect(
+		UIS.InputEnded,
+		function(input)
+			if input==ActiveInput then
+				Dragging=false
+				ActiveInput=nil
+			end
+		end
+	)
+
+	Set(default)
+
+	return {
+		Set=Set,
+		Get=function()
+			return Value
+		end
+	}
+end
+
+local Notification=
+	Instance.new("TextLabel")
+
+Notification.Size=
+	UDim2.fromOffset(
+		230,
+		44
+	)
+
+Notification.Position=
+	UDim2.new(
+		.5,
+		-115,
+		0,
+		-50
+	)
+
+Notification.BackgroundColor3=
+	Theme.Surface
+
+Notification.TextColor3=
+	Theme.Text
+
+Notification.TextSize=
+	FONT.Notification
+
+Notification.Font=
+	Enum.Font.GothamMedium
+
+Notification.TextWrapped=true
+Notification.Visible=false
+Notification.ZIndex=200
+Notification.Parent=GUI
+
+Corner(Notification,11)
+
+local NotifyID=0
+
+local function Notify(text)
+	if not State.Notifications then
+		return
+	end
+
+	NotifyID+=1
+
+	local id=NotifyID
+
+	Notification.Text=text
+	Notification.Visible=true
+
+	Notification.TextTransparency=0
+	Notification.BackgroundTransparency=.04
+
+	Tween(
+		Notification,
+		.2,
+		{
+			Position=
+				UDim2.new(
+					.5,
+					-115,
+					0,
+					12
+				)
+		}
+	)
+
+	task.delay(
+		1.8,
+		function()
+			if id~=NotifyID then
+				return
+			end
+
+			Tween(
+				Notification,
+				.18,
+				{
+					Position=
+						UDim2.new(
+							.5,
+							-115,
+							0,
+							-50
+						),
+
+					TextTransparency=1,
+					BackgroundTransparency=1
+				}
+			)
+
+			task.wait(.2)
+
+			if id==NotifyID then
+				Notification.Visible=false
+			end
+		end
+	)
+end
+
+Section(
+	Home,
+	"لوحة الحالة"
+)
+
+local Dashboard=
+	Instance.new("Frame")
+
+Dashboard.Size=
+	UDim2.new(
+		1,
+		-2,
+		0,
+		118
+	)
+
+Dashboard.BackgroundColor3=
+	Theme.Surface
+
+Dashboard.BorderSizePixel=0
+Dashboard.Parent=Home
+
+Corner(Dashboard,11)
+
+local Grid=
+	Instance.new("UIGridLayout")
+
+Grid.CellSize=
+	UDim2.new(
+		.5,
+		-5,
+		0,
+		51
+	)
+
+Grid.CellPadding=
+	UDim2.fromOffset(5,5)
+
+Grid.Parent=Dashboard
+
+local function Card(text)
+	local Label=
+		Instance.new("TextLabel")
+
+	Label.BackgroundColor3=
+		Theme.Surface2
+
+	Label.BorderSizePixel=0
+	Label.Text=text
+	Label.TextColor3=Theme.Text
+
+	Label.TextSize=
+		FONT.Card
+
+	Label.Font=
+		Enum.Font.GothamMedium
+
+	Label.TextWrapped=true
+	Label.Parent=Dashboard
+
+	Corner(Label,9)
+
+	return Label
+end
+
+local HomeMovement=
+	Card(
+		"الحركة\n16"
+	)
+
+local HomeFly=
+	Card(
+		"الطيران\nOFF"
+	)
+
+local HomeESP=
+	Card(
+		"ESP\nOFF"
+	)
+
+local HomePlayers=
+	Card(
+		"اللاعبون\n0"
+	)
+
+local function UpdateDashboard()
+	HomeMovement.Text=
+		"الحركة\n"..
+		(
+			State.Sprint and
+			Values.SprintSpeed or
+			Values.WalkSpeed
+		)
+
+	HomeFly.Text=
+		"الطيران\n"..
+		(
+			State.Fly and
+			"ON" or
+			"OFF"
+		)
+
+	HomeESP.Text=
+		"ESP\n"..
+		(
+			State.ESP and
+			"ON" or
+			"OFF"
+		)
+
+	HomePlayers.Text=
+		"اللاعبون\n"..
+		math.max(
+			0,
+			#Players:GetPlayers()-1
+		)
+end
+
+Section(
+	Movement,
+	"الحركة الأساسية"
+)
+
+local SprintToggle=
+	ToggleRow(
+		Movement,
+		"Sprint",
+		"الركض السريع",
+		false,
+		function(value)
+			State.Sprint=value
+
+			if Humanoid then
+				Humanoid.WalkSpeed=
+					value and
+					Values.SprintSpeed or
+					Values.WalkSpeed
+			end
+
+			UpdateDashboard()
+		end,
+		"RUN"
+	)
+
+ToggleRow(
+	Movement,
+	"InfiniteJump",
+	"القفز اللانهائي",
+	false,
+	function(value)
+		State.InfiniteJump=value
+	end,
+	"JUMP"
+)
+
+ToggleRow(
+	Movement,
+	"Noclip",
+	"Noclip",
+	false,
+	function(value)
+		State.Noclip=value
+	end,
+	"NOCLIP"
+)
+
+ToggleRow(
+	Movement,
+	"WallHop",
+	"Wall Hop",
+	false,
+	function(value)
+		State.WallHop=value
+	end,
+	"WALL"
+)
+
+Section(
+	Movement,
+	"قيم الحركة"
+)
+
+Slider(
+	Movement,
+	"سرعة المشي",
+	8,
+	1000,
+	16,
+	function(value)
+		Values.WalkSpeed=value
+
+		if
+			Humanoid and
+			not State.Sprint
+		then
+			Humanoid.WalkSpeed=value
+		end
+
+		UpdateDashboard()
+	end
+)
+
+Slider(
+	Movement,
+	"سرعة الركض",
+	20,
+	1000,
+	30,
+	function(value)
+		Values.SprintSpeed=value
+
+		if
+			Humanoid and
+			State.Sprint
+		then
+			Humanoid.WalkSpeed=value
+		end
+
+		UpdateDashboard()
+	end
+)
+
+Slider(
+	Movement,
+	"قوة القفز",
+	30,
+	1000,
+	50,
+	function(value)
+		Values.JumpPower=value
+
+		if Humanoid then
+			Humanoid.UseJumpPower=true
+			Humanoid.JumpPower=value
+		end
+	end
+)
+
+local DashBusy=false
+
+local function Dash()
+	if
+		DashBusy or
+		not Root or
+		not Humanoid
+	then
+		return
+	end
+
+	local direction=
+		Humanoid.MoveDirection
+
+	if
+		direction.Magnitude<.1 and
+		Camera
+	then
+		local look=
+			Camera.CFrame.LookVector
+
+		direction=
+			Vector3.new(
+				look.X,
+				0,
+				look.Z
+			)
+	end
+
+	if direction.Magnitude<.1 then
+		return
+	end
+
+	DashBusy=true
+	direction=direction.Unit
+
+	Root.AssemblyLinearVelocity=
+		Vector3.new(
+			direction.X*
+			Values.DashPower,
+
+			Root.AssemblyLinearVelocity.Y,
+
+			direction.Z*
+			Values.DashPower
+		)
+
+	task.delay(
+		Values.DashCooldown,
+		function()
+			DashBusy=false
+		end
+	)
+end
+
+Section(
+	Movement,
+	"Dash"
+)
+
+ActionButton(
+	Movement,
+	"Dash",
+	"تنفيذ Dash",
+	"DASH",
+	Dash
+)
+
+Slider(
+	Movement,
+	"قوة Dash",
+	40,
+	1000,
+	85,
+	function(value)
+		Values.DashPower=value
+	end
+)
+
+Connect(
+	UIS.JumpRequest,
+	function()
+		if
+			State.InfiniteJump and
+			Humanoid and
+			Humanoid.Health>0
+		then
+			Humanoid:ChangeState(
+				Enum.HumanoidStateType.Jumping
+			)
+		end
+	end
+)
+
+local NoclipOriginal={}
+
+local function RestoreNoclip()
+	for part,value in pairs(NoclipOriginal) do
+		if part and part.Parent then
+			part.CanCollide=value
+		end
+	end
+
+	table.clear(NoclipOriginal)
+end
+
+Connect(
+	RunService.Stepped,
+	function()
+		if
+			State.Noclip and
+			Character
+		then
+			for _,object in ipairs(
+				Character:GetDescendants()
+			) do
+				if object:IsA("BasePart") then
+					if NoclipOriginal[object]==nil then
+						NoclipOriginal[object]=
+							object.CanCollide
+					end
+
+					object.CanCollide=false
+				end
+			end
+		else
+			RestoreNoclip()
+		end
+	end
+)
+
+local WallParams=
+	RaycastParams.new()
+
+WallParams.FilterType=
+	Enum.RaycastFilterType.Exclude
+
+WallParams.IgnoreWater=true
+
+local LastWallHop=0
+
+Connect(
+	UIS.JumpRequest,
+	function()
+		if
+			not State.WallHop or
+			not Root or
+			not Character or
+			os.clock()-LastWallHop<.18
+		then
+			return
+		end
+
+		WallParams.FilterDescendantsInstances={
+			Character
+		}
+
+		for _,direction in ipairs({
+			Root.CFrame.RightVector,
+			-Root.CFrame.RightVector,
+			Root.CFrame.LookVector,
+			-Root.CFrame.LookVector
+		}) do
+			local result=
+				workspace:Raycast(
+					Root.Position,
+					direction*4,
+					WallParams
+				)
+
+			if result then
+				LastWallHop=
+					os.clock()
+
+				Root.AssemblyLinearVelocity=
+					result.Normal*
+					Values.WallPower+
+					Vector3.new(
+						0,
+						Values.WallJump,
+						0
+					)
+
+				break
+			end
+		end
+	end
+)
+
+Section(
+	Flight,
+	"نظام الطيران"
+)
+
+local FlyAttachment
+local FlyVelocity
+local FlyOrientation
+
+local UpButton
+local DownButton
+
+local function UpdateFlyControls()
+	local visible=
+		State.Fly and
+		State.ShowFlyControls
+
+	if UpButton then
+		UpButton.Visible=visible
+	end
+
+	if DownButton then
+		DownButton.Visible=visible
+	end
+end
+
+local function StopFly()
+	State.Fly=false
+	State.FlyUp=false
+	State.FlyDown=false
+
+	if FlyVelocity then
+		FlyVelocity:Destroy()
+		FlyVelocity=nil
+	end
+
+	if FlyOrientation then
+		FlyOrientation:Destroy()
+		FlyOrientation=nil
+	end
+
+	if FlyAttachment then
+		FlyAttachment:Destroy()
+		FlyAttachment=nil
+	end
+
+	if Humanoid then
+		Humanoid.AutoRotate=true
+	end
+
+	UpdateFlyControls()
+	UpdateDashboard()
+end
+
+local function StartFly()
+	if
+		not Root or
+		not Humanoid
+	then
+		return
+	end
+
+	StopFly()
+
+	State.Fly=true
+	Humanoid.AutoRotate=false
+
+	FlyAttachment=
+		Instance.new("Attachment")
+
+	FlyAttachment.Parent=Root
+
+	FlyVelocity=
+		Instance.new("LinearVelocity")
+
+	FlyVelocity.Attachment0=
+		FlyAttachment
+
+	FlyVelocity.RelativeTo=
+		Enum.ActuatorRelativeTo.World
+
+	FlyVelocity.VelocityConstraintMode=
+		Enum.VelocityConstraintMode.Vector
+
+	FlyVelocity.ForceLimitsEnabled=false
+	FlyVelocity.Parent=Root
+
+	FlyOrientation=
+		Instance.new("AlignOrientation")
+
+	FlyOrientation.Attachment0=
+		FlyAttachment
+
+	FlyOrientation.Mode=
+		Enum.OrientationAlignmentMode.OneAttachment
+
+	FlyOrientation.MaxTorque=
+		math.huge
+
+	FlyOrientation.Responsiveness=18
+	FlyOrientation.Parent=Root
+
+	UpdateFlyControls()
+	UpdateDashboard()
+end
+
+local FlyToggle=
+	ToggleRow(
+		Flight,
+		"Fly",
+		"الطيران",
+		false,
+		function(value)
+			if value then
+				StartFly()
+			else
+				StopFly()
+			end
+		end,
+		"FLY"
+	)
+
+Slider(
+	Flight,
+	"سرعة الطيران",
+	20,
+	1000,
+	65,
+	function(value)
+		Values.FlySpeed=value
+	end
+)
+
+ToggleRow(
+	Flight,
+	nil,
+	"اتجاه الكاميرا",
+	false,
+	function(value)
+		State.FlyCameraMode=value
+	end
+)
+
+ToggleRow(
+	Flight,
+	nil,
+	"أزرار ▲ ▼",
+	true,
+	function(value)
+		State.ShowFlyControls=value
+		UpdateFlyControls()
+	end
+)
+
+local function FlyControl(text,y)
+	local Button=
+		Instance.new("TextButton")
+
+	Button.Size=
+		UDim2.fromOffset(
+			50,
+			50
+		)
+
+	Button.Position=
+		UDim2.new(
+			1,
+			-64,
+			.5,
+			y
+		)
+
+	Button.BackgroundColor3=
+		Theme.AccentDark
+
+	Button.BorderSizePixel=0
+	Button.Text=text
+	Button.TextColor3=Theme.Text
+
+	Button.TextSize=
+		FONT.FlyControl
+
+	Button.Font=
+		Enum.Font.GothamBold
+
+	Button.Visible=false
+	Button.ZIndex=70
+	Button.Parent=GUI
+
+	Circle(Button)
+
+	return Button
+end
+
+UpButton=
+	FlyControl(
+		"▲",
+		-55
+	)
+
+DownButton=
+	FlyControl(
+		"▼",
+		5
+	)
+
+local function Hold(button,callback)
+	Connect(
+		button.InputBegan,
+		function(input)
+			if
+				input.UserInputType==
+					Enum.UserInputType.Touch
+				or
+				input.UserInputType==
+					Enum.UserInputType.MouseButton1
+			then
+				callback(true)
+			end
+		end
+	)
+
+	Connect(
+		button.InputEnded,
+		function(input)
+			if
+				input.UserInputType==
+					Enum.UserInputType.Touch
+				or
+				input.UserInputType==
+					Enum.UserInputType.MouseButton1
+			then
+				callback(false)
+			end
+		end
+	)
+end
+
+Hold(
+	UpButton,
+	function(value)
+		State.FlyUp=value
+	end
+)
+
+Hold(
+	DownButton,
+	function(value)
+		State.FlyDown=value
+	end
+)
+
+Connect(
+	RunService.RenderStepped,
+	function()
+		if
+			not State.Fly or
+			not Root or
+			not Humanoid or
+			not FlyVelocity or
+			not Camera
+		then
+			return
+		end
+
+		local movement=
+			Humanoid.MoveDirection
+
+		local vertical=
+			(State.FlyUp and 1 or 0)
+			-
+			(State.FlyDown and 1 or 0)
+
+		FlyVelocity.VectorVelocity=
+			Vector3.new(
+				movement.X*
+				Values.FlySpeed,
+
+				vertical*
+				Values.FlySpeed,
+
+				movement.Z*
+				Values.FlySpeed
+			)
+
+		local look=
+			Camera.CFrame.LookVector
+
+		local flat=
+			Vector3.new(
+				look.X,
+				0,
+				look.Z
+			)
+
+		if
+			flat.Magnitude>.05 and
+			FlyOrientation
+		then
+			FlyOrientation.CFrame=
+				CFrame.lookAt(
+					Root.Position,
+					Root.Position+
+					flat.Unit
+				)
+		end
+	end
+)
+
+local SavedPoint=nil
+local PreviousPoint=nil
+
+local function SavePreviousPoint()
+	if Root then
+		PreviousPoint=Root.CFrame
+	end
+end
+
+local function TeleportTo(cframe)
+	if
+		not Root or
+		not cframe
+	then
+		return
+	end
+
+	SavePreviousPoint()
+
+	Root.AssemblyLinearVelocity=
+		Vector3.zero
+
+	Root.AssemblyAngularVelocity=
+		Vector3.zero
+
+	Root.CFrame=cframe
+end
+
+Section(
+	TeleportPage,
+	"نقطة الانتقال"
+)
+
+ActionButton(
+	TeleportPage,
+	"SaveTeleportPoint",
+	"حفظ موقعي كنقطة",
+	"SAVE",
+	function()
+		if not Root then
+			return
+		end
+
+		SavedPoint=Root.CFrame
+
+		Notify(
+			"تم حفظ نقطة الانتقال"
+		)
+	end
+)
+
+ActionButton(
+	TeleportPage,
+	"TeleportSavedPoint",
+	"الانتقال إلى النقطة المحفوظة",
+	"POINT",
+	function()
+		if not SavedPoint then
+			Notify(
+				"لم تحفظ نقطة بعد"
+			)
+
+			return
+		end
+
+		TeleportTo(
+			SavedPoint+
+			Vector3.new(
+				0,
+				2,
+				0
+			)
+		)
+
+		Notify(
+			"تم الانتقال للنقطة"
+		)
+	end
+)
+
+ActionButton(
+	TeleportPage,
+	"BackTeleport",
+	"العودة للموقع السابق",
+	"BACK",
+	function()
+		if
+			not Root or
+			not PreviousPoint
+		then
+			Notify(
+				"لا يوجد موقع سابق"
+			)
+
+			return
+		end
+
+		local current=
+			Root.CFrame
+
+		Root.AssemblyLinearVelocity=
+			Vector3.zero
+
+		Root.AssemblyAngularVelocity=
+			Vector3.zero
+
+		Root.CFrame=
+			PreviousPoint
+
+		PreviousPoint=current
+
+		Notify(
+			"تم الرجوع للموقع السابق"
+		)
+	end
+)
+
+Section(
+	TeleportPage,
+	"الانتقال للاعب"
+)
+
+local TeleportSelected=
+	Instance.new("TextLabel")
+
+TeleportSelected.Size=
+	UDim2.new(
+		1,
+		-2,
+		0,
+		52
+	)
+
+TeleportSelected.BackgroundColor3=
+	Theme.Surface
+
+TeleportSelected.BorderSizePixel=0
+
+TeleportSelected.Text=
+	"لا يوجد لاعب محدد"
+
+TeleportSelected.TextColor3=
+	Theme.Muted
+
+TeleportSelected.TextSize=
+	FONT.Selected
+
+TeleportSelected.Font=
+	Enum.Font.GothamMedium
+
+TeleportSelected.TextWrapped=true
+TeleportSelected.Parent=TeleportPage
+
+Corner(
+	TeleportSelected,
+	10
+)
+
+ActionButton(
+	TeleportPage,
+	"TeleportPlayer",
+	"الانتقال إلى اللاعب المحدد",
+	"TP",
+	function()
+		local target=
+			State.SelectedPlayer
+
+		if
+			not target or
+			not target.Character
+		then
+			Notify(
+				"اختر لاعبًا من قسم اللاعبين"
+			)
+
+			return
+		end
+
+		local targetRoot=
+			target.Character:
+			FindFirstChild(
+				"HumanoidRootPart"
+			)
+
+		if not targetRoot then
+			Notify(
+				"اللاعب غير جاهز"
+			)
+
+			return
+		end
+
+		TeleportTo(
+			targetRoot.CFrame*
+			CFrame.new(
+				0,
+				0,
+				4
+			)
+		)
+
+		Notify(
+			"تم الانتقال إلى "..
+			target.DisplayName
+		)
+	end
+)
+
+Section(
+	TeleportPage,
+	"أماكن إضافية"
+)
+
+ActionButton(
+	TeleportPage,
+	"TeleportSpawn",
+	"الانتقال إلى Spawn",
+	"SPAWN",
+	function()
+		local spawn
+
+		for _,object in ipairs(
+			workspace:GetDescendants()
+		) do
+			if object:IsA("SpawnLocation") then
+				spawn=object
+				break
+			end
+		end
+
+		if not spawn then
+			Notify(
+				"لم يتم العثور على Spawn"
+			)
+
+			return
+		end
+
+		TeleportTo(
+			spawn.CFrame+
+			Vector3.new(
+				0,
+				4,
+				0
+			)
+		)
+
+		Notify(
+			"تم الانتقال إلى Spawn"
+		)
+	end
+)
+
+ActionButton(
+	TeleportPage,
+	"TeleportUp",
+	"الارتفاع 10 Studs",
+	"UP10",
+	function()
+		if not Root then
+			return
+		end
+
+		TeleportTo(
+			Root.CFrame+
+			Vector3.new(
+				0,
+				10,
+				0
+			)
+		)
+	end
+)
+
+Section(
+	ESPPage,
+	"ESP"
+)
+
+local ESPObjects={}
+
+local function RemoveESP(target)
+	local data=
+		ESPObjects[target]
+
+	if data then
+		if data.Highlight then
+			data.Highlight:Destroy()
+		end
+
+		if data.Gui then
+			data.Gui:Destroy()
+		end
+
+		ESPObjects[target]=nil
+	end
+end
+
+local function ShouldESP(target)
+	if
+		target==Player or
+		not target.Character
+	then
+		return false
+	end
+
+	if
+		State.TeamCheck and
+		Player.Team and
+		target.Team and
+		Player.Team==target.Team
+	then
+		return false
+	end
+
+	return
+		State.ESP or
+		(
+			State.SelectedESP and
+			target==
+				State.SelectedPlayer
+		)
+end
+
+local function AddESP(target)
+	RemoveESP(target)
+
+	if not ShouldESP(target) then
+		return
+	end
+
+	local targetRoot=
+		target.Character:
+		FindFirstChild(
+			"HumanoidRootPart"
+		)
+
+	local targetHumanoid=
+		target.Character:
+		FindFirstChildOfClass(
+			"Humanoid"
+		)
+
+	if
+		not targetRoot or
+		not targetHumanoid
+	then
+		return
+	end
+
+	local Highlight=
+		Instance.new("Highlight")
+
+	Highlight.Adornee=
+		target.Character
+
+	Highlight.FillColor=
+		Theme.Accent
+
+	Highlight.FillTransparency=.72
+
+	Highlight.OutlineColor=
+		Theme.Accent2
+
+	Highlight.DepthMode=
+		Enum.HighlightDepthMode.AlwaysOnTop
+
+	Highlight.Parent=
+		target.Character
+
+	local Gui=
+		Instance.new("BillboardGui")
+
+	Gui.Size=
+		UDim2.fromOffset(
+			190,
+			80
+		)
+
+	Gui.StudsOffset=
+		Vector3.new(
+			0,
+			3.2,
+			0
+		)
+
+	Gui.AlwaysOnTop=true
+	Gui.Adornee=targetRoot
+	Gui.Parent=targetRoot
+
+	local Label=
+		Instance.new("TextLabel")
+
+	Label.Size=
+		UDim2.fromScale(1,1)
+
+	Label.BackgroundTransparency=1
+
+	Label.TextColor3=
+		Theme.Text
+
+	Label.TextStrokeTransparency=.15
+
+	Label.TextSize=
+		FONT.ESP
+
+	Label.Font=
+		Enum.Font.GothamBold
+
+	Label.Parent=Gui
+
+	ESPObjects[target]={
+		Highlight=Highlight,
+		Gui=Gui,
+		Label=Label,
+		Root=targetRoot,
+		Humanoid=targetHumanoid
+	}
+end
+
+local function RefreshESP()
+	local old={}
+
+	for target in pairs(
+		ESPObjects
+	) do
+		table.insert(
+			old,
+			target
+		)
+	end
+
+	for _,target in ipairs(old) do
+		RemoveESP(target)
+	end
+
+	for _,target in ipairs(
+		Players:GetPlayers()
+	) do
+		if ShouldESP(target) then
+			AddESP(target)
+		end
+	end
+end
+
+local ESPMaster=
+	ToggleRow(
+		ESPPage,
+		"ESP",
+		"تشغيل ESP",
+		false,
+		function(value)
+			State.ESP=value
+
+			RefreshESP()
+			UpdateDashboard()
+		end,
+		"ESP"
+	)
+
+ToggleRow(
+	ESPPage,
+	nil,
+	"الأسماء",
+	true,
+	function(value)
+		State.ESPNames=value
+	end
+)
+
+ToggleRow(
+	ESPPage,
+	nil,
+	"الصحة",
+	true,
+	function(value)
+		State.ESPHealth=value
+	end
+)
+
+ToggleRow(
+	ESPPage,
+	nil,
+	"المسافة",
+	true,
+	function(value)
+		State.ESPDistance=value
+	end
+)
+
+ToggleRow(
+	ESPPage,
+	nil,
+	"Team Check",
+	false,
+	function(value)
+		State.TeamCheck=value
+		RefreshESP()
+	end
+)
+
+Slider(
+	ESPPage,
+	"أقصى مسافة",
+	100,
+	2500,
+	1500,
+	function(value)
+		Values.ESPDistance=value
+	end
+)
+
+Connect(
+	RunService.Heartbeat,
+	function()
+		for _,target in ipairs(
+			Players:GetPlayers()
+		) do
+			if
+				ShouldESP(target) and
+				not ESPObjects[target]
+			then
+				AddESP(target)
+
+			elseif
+				not ShouldESP(target) and
+				ESPObjects[target]
+			then
+				RemoveESP(target)
+			end
+		end
+
+		for target,data in pairs(
+			ESPObjects
+		) do
+			if
+				not target.Parent or
+				not data.Root.Parent
+			then
+				RemoveESP(target)
+				continue
+			end
+
+			local distance=
+				Root and
+				(
+					Root.Position-
+					data.Root.Position
+				).Magnitude or
+				0
+
+			local visible=
+				distance<=
+				Values.ESPDistance
+
+			data.Gui.Enabled=
+				visible
+
+			data.Highlight.Enabled=
+				visible
+
+			if visible then
+				local lines={}
+
+				if State.ESPNames then
+					table.insert(
+						lines,
+						target.DisplayName..
+						" @"..
+						target.Name
+					)
+				end
+
+				if State.ESPHealth then
+					table.insert(
+						lines,
+						"HP "..
+						math.floor(
+							data.Humanoid.Health
+						)..
+						"/"..
+						math.floor(
+							data.Humanoid.MaxHealth
+						)
+					)
+				end
+
+				if State.ESPDistance then
+					table.insert(
+						lines,
+						math.floor(
+							distance
+						)..
+						" studs"
+					)
+				end
+
+				data.Label.Text=
+					table.concat(
+						lines,
+						"\n"
+					)
+			end
+		end
+	end
+)
+
+Section(
+	PlayersPage,
+	"اللاعب المحدد"
+)
+
+local SelectedCard=
+	Instance.new("TextLabel")
+
+SelectedCard.Size=
+	UDim2.new(
+		1,
+		-2,
+		0,
+		56
+	)
+
+SelectedCard.BackgroundColor3=
+	Theme.Surface
+
+SelectedCard.Text=
+	"لا يوجد لاعب محدد"
+
+SelectedCard.TextColor3=
+	Theme.Muted
+
+SelectedCard.TextSize=
+	FONT.Selected
+
+SelectedCard.Font=
+	Enum.Font.GothamMedium
+
+SelectedCard.TextWrapped=true
+SelectedCard.Parent=PlayersPage
+
+Corner(
+	SelectedCard,
+	10
+)
+
+local function UpdateSelected()
+	local target=
+		State.SelectedPlayer
+
+	if target then
+		SelectedCard.Text=
+			target.DisplayName..
+			"\n@"..
+			target.Name
+
+		TeleportSelected.Text=
+			"المحدد:\n"..
+			target.DisplayName..
+			" @"..
+			target.Name
+
+		TeleportSelected.TextColor3=
+			Theme.Text
+	else
+		SelectedCard.Text=
+			"لا يوجد لاعب محدد"
+
+		TeleportSelected.Text=
+			"لا يوجد لاعب محدد"
+
+		TeleportSelected.TextColor3=
+			Theme.Muted
+	end
+end
+
+local function StopSpectate()
+	State.Spectating=false
+
+	if
+		Camera and
+		Humanoid
+	then
+		Camera.CameraSubject=
+			Humanoid
+	end
+end
+
+local function Spectate()
+	local target=
+		State.SelectedPlayer
+
+	if
+		not target or
+		not target.Character
+	then
+		Notify(
+			"اختر لاعبًا أولًا"
+		)
+
+		return
+	end
+
+	local targetHumanoid=
+		target.Character:
+		FindFirstChildOfClass(
+			"Humanoid"
+		)
+
+	if
+		targetHumanoid and
+		Camera
+	then
+		State.Spectating=true
+
+		Camera.CameraSubject=
+			targetHumanoid
+	end
+end
+
+ActionButton(
+	PlayersPage,
+	"Spectate",
+	"مراقبة اللاعب المحدد",
+	"WATCH",
+	Spectate
+)
+
+ActionButton(
+	PlayersPage,
+	"TPSelected",
+	"الانتقال إلى اللاعب المحدد",
+	"TP",
+	function()
+		local target=
+			State.SelectedPlayer
+
+		if
+			not target or
+			not target.Character
+		then
+			Notify(
+				"اختر لاعبًا أولًا"
+			)
+
+			return
+		end
+
+		local targetRoot=
+			target.Character:
+			FindFirstChild(
+				"HumanoidRootPart"
+			)
+
+		if not targetRoot then
+			Notify(
+				"اللاعب غير جاهز"
+			)
+
+			return
+		end
+
+		TeleportTo(
+			targetRoot.CFrame*
+			CFrame.new(
+				0,
+				0,
+				4
+			)
+		)
+
+		Notify(
+			"تم الانتقال إلى "..
+			target.DisplayName
+		)
+	end
+)
+
+local SelectedESPToggle=
+	ToggleRow(
+		PlayersPage,
+		nil,
+		"ESP للاعب المحدد",
+		false,
+		function(value)
+			State.SelectedESP=value
+			RefreshESP()
+		end
+	)
+
+local SearchBox=
+	Instance.new("TextBox")
+
+SearchBox.Size=
+	UDim2.new(
+		1,
+		-2,
+		0,
+		40
+	)
+
+SearchBox.BackgroundColor3=
+	Theme.Surface2
+
+SearchBox.PlaceholderText=
+	"بحث عن لاعب..."
+
+SearchBox.PlaceholderColor3=
+	Theme.Muted
+
+SearchBox.Text=""
+SearchBox.TextColor3=Theme.Text
+
+SearchBox.TextSize=
+	FONT.Search
+
+SearchBox.Font=
+	Enum.Font.GothamMedium
+
+SearchBox.Parent=
+	PlayersPage
+
+Corner(
+	SearchBox,
+	9
+)
+
+local PlayerHolder=
+	Instance.new("Frame")
+
+PlayerHolder.Size=
+	UDim2.new(
+		1,
+		-2,
+		0,
+		0
+	)
+
+PlayerHolder.AutomaticSize=
+	Enum.AutomaticSize.Y
+
+PlayerHolder.BackgroundTransparency=1
+PlayerHolder.Parent=PlayersPage
+
+local PlayerLayout=
+	Instance.new("UIListLayout")
+
+PlayerLayout.Padding=
+	UDim.new(0,5)
+
+PlayerLayout.Parent=
+	PlayerHolder
+
+local function RefreshPlayers()
+	for _,object in ipairs(
+		PlayerHolder:GetChildren()
+	) do
+		if object:IsA("TextButton") then
+			object:Destroy()
+		end
+	end
+
+	local query=
+		SearchBox.Text:lower()
+
+	for _,target in ipairs(
+		Players:GetPlayers()
+	) do
+		if
+			target~=Player and
+			(
+				query=="" or
+				target.Name:
+					lower():
+					find(
+						query,
+						1,
+						true
+					)
+				or
+				target.DisplayName:
+					lower():
+					find(
+						query,
+						1,
+						true
+					)
+			)
+		then
+			local Button=
+				Instance.new("TextButton")
+
+			Button.Size=
+				UDim2.new(
+					1,
+					-2,
+					0,
+					40
+				)
+
+			Button.BackgroundColor3=
+				target==
+					State.SelectedPlayer and
+				Theme.AccentDark or
+				Theme.Surface2
+
+			Button.Text=
+				target.DisplayName..
+				"  @"..
+				target.Name
+
+			Button.TextColor3=
+				Theme.Text
+
+			Button.TextSize=
+				FONT.Player
+
+			Button.Font=
+				Enum.Font.GothamMedium
+
+			Button.Parent=
+				PlayerHolder
+
+			Corner(
+				Button,
+				9
+			)
+
+			Connect(
+				Button.Activated,
+				function()
+					State.SelectedPlayer=
+						target
+
+					UpdateSelected()
+					RefreshPlayers()
+					RefreshESP()
+				end
+			)
+		end
+	end
+
+	UpdateDashboard()
+end
+
+Connect(
+	SearchBox:
+	GetPropertyChangedSignal(
+		"Text"
+	),
+	RefreshPlayers
+)
+
+Section(
+	CameraPage,
+	"Spectate"
+)
+
+ActionButton(
+	CameraPage,
+	"CameraSpectate",
+	"مراقبة اللاعب المحدد",
+	"WATCH",
+	Spectate
+)
+
+ActionButton(
+	CameraPage,
+	"StopSpectate",
+	"إيقاف المراقبة",
+	"STOP",
+	StopSpectate
+)
+
+Section(
+	CameraPage,
+	"Field Of View"
+)
+
+Slider(
+	CameraPage,
+	"FOV",
+	40,
+	120,
+	70,
+	function(value)
+		Values.FOV=value
+
+		if Camera then
+			Camera.FieldOfView=value
+		end
+	end
+)
+
+ActionButton(
+	CameraPage,
+	"ResetCamera",
+	"إعادة ضبط الكاميرا",
+	"CAM",
+	function()
+		StopSpectate()
+
+		Values.FOV=
+			CONFIG.DefaultFOV
+
+		if Camera then
+			Camera.FieldOfView=
+				Values.FOV
+		end
+	end
+)
+
+Section(
+	QuickPage,
+	"الأزرار العائمة"
+)
+
+Slider(
+	QuickPage,
+	"حجم الأزرار",
+	34,
+	70,
+	46,
+	function(value)
+		State.QuickSize=value
+		UpdateQuickSettings()
+	end
+)
+
+Slider(
+	QuickPage,
+	"الشفافية",
+	0,
+	60,
+	5,
+	function(value)
+		State.QuickTransparency=
+			value/100
+
+		UpdateQuickSettings()
+	end,
+	"%"
+)
+
+ToggleRow(
+	QuickPage,
+	nil,
+	"قفل المواقع",
+	false,
+	function(value)
+		State.QuickLocked=value
+	end
+)
+
+ActionButton(
+	QuickPage,
+	nil,
+	"حذف جميع الاختصارات",
+	"",
+	function()
+		local ids={}
+
+		for id in pairs(
+			QuickButtons
+		) do
+			table.insert(
+				ids,
+				id
+			)
+		end
+
+		for _,id in ipairs(ids) do
+			RemoveQuick(id)
+		end
+	end
+)
+
+Section(
+	Settings,
+	"الواجهة"
+)
+
+ToggleRow(
+	Settings,
+	nil,
+	"Animations",
+	true,
+	function(value)
+		State.Animations=value
+	end
+)
+
+ToggleRow(
+	Settings,
+	nil,
+	"الإشعارات",
+	true,
+	function(value)
+		State.Notifications=value
+	end
+)
+
+Slider(
+	Settings,
+	"حجم الواجهة",
+	75,
+	110,
+	100,
+	function(value)
+		Values.GUIScale=
+			value/100
+
+		ApplyMainScale()
+	end,
+	"%"
+)
+
+Slider(
+	Settings,
+	"شفافية الخلفية",
+	0,
+	50,
+	0,
+	function(value)
+		Main.BackgroundTransparency=
+			value/100
+	end,
+	"%"
+)
+
+Section(
+	Home,
+	"تحكم سريع"
+)
+
+ActionButton(
+	Home,
+	"HomeDash",
+	"Dash",
+	"DASH",
+	Dash
+)
+
+ActionButton(
+	Home,
+	"HomeCamera",
+	"إعادة الكاميرا",
+	"CAM",
+	function()
+		StopSpectate()
+
+		if Camera then
+			Camera.FieldOfView=
+				Values.FOV
+		end
+	end
+)
+
+local Busy=false
+
+local LastMainPosition=
+	Main.Position
+
+local function HideMenu()
+	if
+		Busy or
+		not State.Menu
+	then
+		return
+	end
+
+	Busy=true
+	State.Menu=false
+
+	LastMainPosition=
+		Main.Position
+
+	Tween(
+		Main,
+		.18,
+		{
+			Position=
+				UDim2.new(
+					0,
+					-300,
+					Main.Position.Y.Scale,
+					Main.Position.Y.Offset
+				)
+		}
+	)
+
+	task.wait(.19)
+
+	Main.Visible=false
+	Mini.Visible=true
+
+	Busy=false
+end
+
+local function ShowMenu()
+	if
+		Busy or
+		State.Menu
+	then
+		return
+	end
+
+	Busy=true
+
+	Mini.Visible=false
+	Main.Visible=true
+
+	Main.Position=
+		UDim2.new(
+			0,
+			-300,
+			LastMainPosition.Y.Scale,
+			LastMainPosition.Y.Offset
+		)
+
+	Tween(
+		Main,
+		.25,
+		{
+			Position=
+				LastMainPosition
+		}
+	)
+
+	task.wait(.26)
+
+	State.Menu=true
+	Busy=false
+end
+
+Connect(
+	Minimize.Activated,
+	HideMenu
+)
+
+local function MakeDraggable(
+	handle,
+	target
+)
+	local Dragging=false
+
+	local ActiveInput
+	local Start
+	local StartPosition
+
+	Connect(
+		handle.InputBegan,
+		function(input)
+			if
+				input.UserInputType~=
+					Enum.UserInputType.Touch
+				and
+				input.UserInputType~=
+					Enum.UserInputType.MouseButton1
+			then
+				return
+			end
+
+			Dragging=true
+			ActiveInput=input
+			Start=input.Position
+			StartPosition=target.Position
+		end
+	)
+
+	Connect(
+		UIS.InputChanged,
+		function(input)
+			if not Dragging then
+				return
+			end
+
+			local valid=
+				input==ActiveInput or
+				(
+					ActiveInput and
+					ActiveInput.UserInputType==
+						Enum.UserInputType.MouseButton1 and
+					input.UserInputType==
+						Enum.UserInputType.MouseMovement
+				)
+
+			if valid then
+				local delta=
+					input.Position-Start
+
+				target.Position=
+					UDim2.new(
+						StartPosition.X.Scale,
+						StartPosition.X.Offset+delta.X,
+						StartPosition.Y.Scale,
+						StartPosition.Y.Offset+delta.Y
+					)
+			end
+		end
+	)
+
+	Connect(
+		UIS.InputEnded,
+		function(input)
+			if input==ActiveInput then
+				Dragging=false
+				ActiveInput=nil
+			end
+		end
+	)
+end
+
+MakeDraggable(
+	Header,
+	Main
+)
+
+do
+	local Dragging=false
+	local Moved=false
+
+	local ActiveInput
+	local Start
+	local StartPosition
+
+	Connect(
+		Mini.InputBegan,
+		function(input)
+			if
+				input.UserInputType~=
+					Enum.UserInputType.Touch
+				and
+				input.UserInputType~=
+					Enum.UserInputType.MouseButton1
+			then
+				return
+			end
+
+			Dragging=true
+			Moved=false
+
+			ActiveInput=input
+			Start=input.Position
+			StartPosition=Mini.Position
+		end
+	)
+
+	Connect(
+		UIS.InputChanged,
+		function(input)
+			if not Dragging then
+				return
+			end
+
+			local valid=
+				input==ActiveInput or
+				(
+					ActiveInput and
+					ActiveInput.UserInputType==
+						Enum.UserInputType.MouseButton1 and
+					input.UserInputType==
+						Enum.UserInputType.MouseMovement
+				)
+
+			if valid then
+				local delta=
+					input.Position-Start
+
+				if delta.Magnitude>6 then
+					Moved=true
+				end
+
+				Mini.Position=
+					UDim2.new(
+						StartPosition.X.Scale,
+						StartPosition.X.Offset+delta.X,
+						StartPosition.Y.Scale,
+						StartPosition.Y.Offset+delta.Y
+					)
+			end
+		end
+	)
+
+	Connect(
+		UIS.InputEnded,
+		function(input)
+			if input~=ActiveInput then
+				return
+			end
+
+			Dragging=false
+			ActiveInput=nil
+
+			if not Moved then
+				ShowMenu()
+			end
+		end
+	)
+end
+
+local function BindTarget(target)
+	if target==Player then
+		return
+	end
+
+	Connect(
+		target.CharacterAdded,
+		function()
+			task.wait(.3)
+
+			if ShouldESP(target) then
+				AddESP(target)
+			end
+
+			if
+				State.Spectating and
+				State.SelectedPlayer==target and
+				target.Character and
+				Camera
+			then
+				local targetHumanoid=
+					target.Character:
+					FindFirstChildOfClass(
+						"Humanoid"
+					)
+
+				if targetHumanoid then
+					Camera.CameraSubject=
+						targetHumanoid
+				end
+			end
+		end
+	)
+
+	Connect(
+		target:GetPropertyChangedSignal(
+			"Team"
+		),
+		function()
+			if State.ESP then
+				RefreshESP()
+			end
+		end
+	)
+end
+
+for _,target in ipairs(
+	Players:GetPlayers()
+) do
+	BindTarget(target)
+end
+
+Connect(
+	Players.PlayerAdded,
+	function(target)
+		BindTarget(target)
+
+		task.defer(
+			RefreshPlayers
+		)
+
+		task.defer(
+			UpdateDashboard
+		)
+	end
+)
+
+Connect(
+	Players.PlayerRemoving,
+	function(target)
+		RemoveESP(target)
+
+		if
+			State.SelectedPlayer==
+			target
+		then
+			State.SelectedPlayer=nil
+			State.SelectedESP=false
+
+			SelectedESPToggle.Set(false)
+
+			StopSpectate()
+			UpdateSelected()
+		end
+
+		task.defer(
+			RefreshPlayers
+		)
+
+		task.defer(
+			UpdateDashboard
+		)
+	end
+)
+
+Connect(
+	Player.CharacterAdded,
+	function(character)
+		RestoreNoclip()
+		StopFly()
+		SetupCharacter(character)
+
+		PreviousPoint=nil
+
+		task.wait(.2)
+
+		if
+			Camera and
+			not State.Spectating
+		then
+			Camera.CameraSubject=
+				Humanoid
+		end
+
+		if Camera then
+			Camera.FieldOfView=
+				Values.FOV
+		end
+
+		RefreshESP()
+	end
+)
+
+RefreshPlayers()
+RefreshESP()
+UpdateSelected()
+UpdateDashboard()
+
+ShowPage(
+	"الرئيسية"
+)
+
+if Camera then
+	Camera.FieldOfView=
+		Values.FOV
+end
+
+local FinalPosition=
+	Main.Position
+
+Main.Position=
+	UDim2.new(
+		0,
+		-300,
+		FinalPosition.Y.Scale,
+		FinalPosition.Y.Offset
+	)
+
+MainScale.Scale=
+	ResponsiveFactor*
+	Values.GUIScale
+
+Tween(
+	Main,
+	.4,
+	{
+		Position=
+			FinalPosition
+	}
+)
+
+task.delay(
+	.45,
+	function()
+		Notify(
+			"MOON SHARINGAN V14.3 جاهز"
+		)
+	end
+)
